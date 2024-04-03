@@ -169,36 +169,37 @@
         return String(url);
       }
 
-      window.addEventListener("DOMContentLoaded", () => {
-        function onUpload(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          uploadFiles([...fileupload.files]);
-          filedialog.close();
-        }
-
-        const dt = document.getElementById("dragover");
+      function setupFileDrop() {
+        const dragZone = document.body;
+        const dragOverlay = document.getElementById("dragover");
 
         function dragEnter() {
-          dt.className =
-            "absolute flex items-center justify-center text-center border-dashed border-4 border-blue-500 bg-white text-2xl z-10 inset-2";
+          dragOverlay.className =
+            "absolute flex items-center justify-center text-center border-dashed border-4 border-blue-500 bg-white text-2xl z-10 inset-0";
         }
 
-        function dragLeave() {
-          dt.className = "hidden";
+        function dragLeave(event) {
+          if (
+            event.relatedTarget === dragOverlay ||
+            event.fromElement === dragOverlay
+          ) {
+            return;
+          }
+
+          dragOverlay.className = "hidden";
         }
 
-        document.body.addEventListener("dragstart", dragEnter);
-        document.body.addEventListener("dragenter", dragEnter);
-        document.body.addEventListener("dragleave", dragLeave);
-        document.body.addEventListener("dragend", dragLeave);
-        document.body.addEventListener("ondragover", function (event) {
+        dragZone.addEventListener("dragstart", dragEnter);
+        dragZone.addEventListener("dragend", dragLeave);
+        dragZone.addEventListener("dragenter", dragEnter);
+        dragZone.addEventListener("dragleave", dragLeave);
+        dragZone.addEventListener("dragover", function (event) {
           event.preventDefault();
-          dragEnter();
         });
 
-        document.body.addEventListener("ondrop", function (event) {
+        dragZone.addEventListener("drop", function (event) {
           event.preventDefault();
+          dragOverlay.className = "hidden";
 
           if (event.dataTransfer.items) {
             uploadFiles(
@@ -207,11 +208,20 @@
                 .map((item) => item.getAsFile())
             );
           } else {
-            uploadFiles([...ev.dataTransfer.files]);
+            uploadFiles([...event.dataTransfer.files]);
           }
-
-          dragLeave();
         });
+      }
+
+      window.addEventListener("DOMContentLoaded", () => {
+        function onUpload(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          uploadFiles([...fileupload.files]);
+          filedialog.close();
+        }
+
+        setupFileDrop();
 
         async function onAddBin() {
           const { binId } = await createBin();
