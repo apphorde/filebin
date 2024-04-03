@@ -177,7 +177,7 @@
           filedialog.close();
         }
 
-        const dt = document.getElementById('dragover');
+        const dt = document.getElementById("dragover");
 
         function dragEnter() {
           dt.className =
@@ -188,15 +188,16 @@
           dt.className = "hidden";
         }
 
-        dt.addEventListener("dragstart", dragEnter);
-        dt.addEventListener("dragenter", dragEnter);
-        dt.addEventListener("dragleave", dragLeave);
-        dt.addEventListener("dragend", dragLeave);
-        dt.addEventListener("ondragover", function (event) {
+        document.body.addEventListener("dragstart", dragEnter);
+        document.body.addEventListener("dragenter", dragEnter);
+        document.body.addEventListener("dragleave", dragLeave);
+        document.body.addEventListener("dragend", dragLeave);
+        document.body.addEventListener("ondragover", function (event) {
           event.preventDefault();
+          dragEnter();
         });
 
-        dt.addEventListener("ondrop", function (event) {
+        document.body.addEventListener("ondrop", function (event) {
           event.preventDefault();
 
           if (event.dataTransfer.items) {
@@ -208,6 +209,8 @@
           } else {
             uploadFiles([...ev.dataTransfer.files]);
           }
+
+          dragLeave();
         });
 
         async function onAddBin() {
@@ -253,7 +256,7 @@
   </head>
   <body class="h-screen w-full flex flex-col relative">
     <div id="dragover" class="hidden">
-      <span>Drop your files here to upload them</span>
+      <span>Drop your files here to start the upload.</span>
     </div>
     <div class="bg-gray-100 flex items-center border-b px-6 w-full py-4">
       <a class="flex items-center gap-2 font-semibold" href="#" id="heading"
