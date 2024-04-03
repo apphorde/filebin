@@ -159,11 +159,11 @@ function onCreateBin(req, res) {
 }
 
 async function onDeleteFile(_req, res, args) {
-  const { binId = '', file = '' } = args;
-  const filePath = join(rootDir, binId, file);
-  const metaPath = join(rootDir, binId, file + '.meta');
+  const { binId = '', fileId = '' } = args;
+  const filePath = join(rootDir, binId, fileId);
+  const metaPath = join(rootDir, binId, fileId + '.meta');
 
-  if (!(binId && file && existsSync(filePath))) {
+  if (!(binId && fileId && existsSync(filePath))) {
     return notFound(res);
   }
 
