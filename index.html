@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#e91e63" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
-      import * as bin from '/index.mjs';
+      import * as bin from "/index.mjs";
       window.bin = bin;
     </script>
     <script type="module">
@@ -20,12 +20,14 @@
         createFile,
         writeFile,
         removeFile,
-      } from '/index.mjs';
+      } from "/index.mjs";
 
       const oneKB = 1024;
       const oneMB = oneKB * 1024;
       const oneGB = oneMB * 1024;
-      const binId = new URL(location.href).searchParams.get('bin') || localStorage.getItem('binId');
+      const binId =
+        new URL(location.href).searchParams.get("bin") ||
+        localStorage.getItem("binId");
 
       const fileSize = (bytes) => {
         if (bytes < oneKB) {
@@ -40,10 +42,11 @@
           return `${(bytes / oneMB).toFixed(2)}MB`;
         }
 
-        return 'WTF?';
+        return "WTF?";
       };
 
-      const fileDate = (d) => new Date(d).toISOString().slice(0, 19).replace('T', ' ');
+      const fileDate = (d) =>
+        new Date(d).toISOString().slice(0, 19).replace("T", " ");
 
       function createRow(file) {
         return `<tr
@@ -152,21 +155,21 @@
           return;
         }
 
-        const rows = document.querySelector('#filelist');
+        const rows = document.querySelector("#filelist");
         const fileList = await listFiles(binId);
 
-        rows.innerHTML = '';
+        rows.innerHTML = "";
 
         fileList.forEach((fileId) => addFileToList(binId, fileId));
       }
 
       function getBinUrl(id) {
         const url = new URL(location.href);
-        url.searchParams.set('bin', id || binId);
+        url.searchParams.set("bin", id || binId);
         return String(url);
       }
 
-      window.addEventListener('DOMContentLoaded', () => {
+      window.addEventListener("DOMContentLoaded", () => {
         function onUpload(e) {
           e.preventDefault();
           e.stopPropagation();
@@ -174,9 +177,42 @@
           filedialog.close();
         }
 
+        const dt = document.body;
+
+        function dragEnter() {
+          dt.className =
+            "absolute flex items-center justify-center text-center border-dashed border-4 border-blue-500 bg-white text-2xl z-10 inset-2";
+        }
+
+        function dragLeave() {
+          dt.className = "hidden";
+        }
+
+        dt.addEventListener("dragstart", dragEnter);
+        dt.addEventListener("dragenter", dragEnter);
+        dt.addEventListener("dragleave", dragLeave);
+        dt.addEventListener("dragend", dragLeave);
+        dt.addEventListener("ondragover", function (event) {
+          event.preventDefault();
+        });
+
+        dt.addEventListener("ondrop", function (event) {
+          event.preventDefault();
+
+          if (event.dataTransfer.items) {
+            uploadFiles(
+              [...event.dataTransfer.items]
+                .filter((item) => item.kind === "file")
+                .map((item) => item.getAsFile())
+            );
+          } else {
+            uploadFiles([...ev.dataTransfer.files]);
+          }
+        });
+
         async function onAddBin() {
           const { binId } = await createBin();
-          localStorage.setItem('binId', binId);
+          localStorage.setItem("binId", binId);
           location.href = getBinUrl(binId);
         }
 
@@ -186,26 +222,28 @@
         }
 
         window.onDeleteFile = async function (bin, file) {
-          if (confirm('Are you sure?')) {
+          if (confirm("Are you sure?")) {
             await removeFile(bin, file);
             const row = document.querySelector(`[data-id="${file}"]`);
             row && row.remove();
           }
         };
 
-        heading.addEventListener('click', updateList);
-        uploadform.addEventListener('submit', onUpload);
-        fileuploadbutton.addEventListener('click', () => filedialog.showModal());
-        filedownloadbutton.href = '/zip/' + binId;
-        uploadclosebutton.addEventListener('click', () => filedialog.close());
+        heading.addEventListener("click", updateList);
+        uploadform.addEventListener("submit", onUpload);
+        fileuploadbutton.addEventListener("click", () =>
+          filedialog.showModal()
+        );
+        filedownloadbutton.href = "/zip/" + binId;
+        uploadclosebutton.addEventListener("click", () => filedialog.close());
 
         if (!binId) {
-          newbin.classList.remove('hidden');
-          document.querySelector('main').classList.add('hidden');
-          addbin.addEventListener('click', onAddBin);
+          newbin.classList.remove("hidden");
+          document.querySelector("main").classList.add("hidden");
+          addbin.addEventListener("click", onAddBin);
         } else {
           binurl.innerText = binId;
-          binurl.addEventListener('click', onCopyUrl);
+          binurl.addEventListener("click", onCopyUrl);
           binurl.href = getBinUrl();
         }
 
@@ -213,7 +251,10 @@
       });
     </script>
   </head>
-  <body class="h-screen w-full flex flex-col">
+  <body class="h-screen w-full flex flex-col relative">
+    <div id="dragover" class="hidden">
+      <span>Drop your files here to upload them</span>
+    </div>
     <div class="bg-gray-100 flex items-center border-b px-6 w-full py-4">
       <a class="flex items-center gap-2 font-semibold" href="#" id="heading"
         ><svg
@@ -258,21 +299,33 @@
             id="filedownloadbutton"
           >
             Download (zip)
-        </a>
+          </a>
         </div>
       </div>
       <div class="border shadow-sm rounded-md">
         <table class="w-full caption-bottom text-sm">
           <thead class="[&_tr]:border-b">
             <tr class="border-b transition-colors">
-              <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground">File Name</th>
-              <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground hidden md:table-cell">
+              <th
+                class="h-12 px-4 text-left align-middle font-bold text-muted-foreground"
+              >
+                File Name
+              </th>
+              <th
+                class="h-12 px-4 text-left align-middle font-bold text-muted-foreground hidden md:table-cell"
+              >
                 Last modified
               </th>
-              <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground hidden md:table-cell">
+              <th
+                class="h-12 px-4 text-left align-middle font-bold text-muted-foreground hidden md:table-cell"
+              >
                 Size
               </th>
-              <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground w-1">&nbsp;</th>
+              <th
+                class="h-12 px-4 text-left align-middle font-bold text-muted-foreground w-1"
+              >
+                &nbsp;
+              </th>
             </tr>
           </thead>
           <tbody class="[&_tr:last-child]:border-0" id="filelist"></tbody>
@@ -281,7 +334,11 @@
     </main>
     <aside class="flex flex-1 items-center justify-center hidden" id="newbin">
       <div class="flex flex-col items-center p-8 bg-gray-100 rounded-lg">
-        <h1 class="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none mb-6">You don't have a bin yet!</h1>
+        <h1
+          class="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none mb-6"
+        >
+          You don't have a bin yet!
+        </h1>
         <p class="text-xl mb-12">Let's create one for you.</p>
         <button
           class="py-2 px-4 text-white inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border-0 bg-blue-500"
@@ -302,7 +359,12 @@
         style="pointer-events: auto"
       >
         <div class="flex flex-col space-y-1.5 text-center sm:text-left">
-          <h2 id="radix-:uploadH1:" class="text-lg font-semibold leading-none tracking-tight mb-4">Upload File</h2>
+          <h2
+            id="radix-:uploadH1:"
+            class="text-lg font-semibold leading-none tracking-tight mb-4"
+          >
+            Upload File
+          </h2>
           <!-- <p id="radix-:uploadH2:" class="text-sm text-muted-foreground">
             Drag and drop your files here or click to select files.
           </p> -->
@@ -323,7 +385,9 @@
             />
           </div>
         </div>
-        <div class="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
+        <div
+          class="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2"
+        >
           <button
             class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-blue-500 text-white px-4 py-2"
             type="submit"
