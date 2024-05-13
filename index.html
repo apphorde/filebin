@@ -160,6 +160,7 @@
 
         rows.innerHTML = "";
 
+        fileList.sort((a, b) => (a.meta?.name > b.meta?.name ? 1 : -1));
         fileList.forEach((fileId) => addFileToList(binId, fileId));
       }
 
