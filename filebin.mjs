@@ -1,6 +1,7 @@
 const API_URL = '__API_HOST__';
 
 const u = (s) => new URL(s, API_URL);
+const h = { method: 'HEAD', mode: 'cors' };
 const g = { method: 'GET', mode: 'cors' };
 const p = { method: 'POST', mode: 'cors' };
 const d = { method: 'DELETE', mode: 'cors' };
@@ -94,6 +95,17 @@ export async function readFile(bin, file) {
   const req = await fetch(u(`/f/${bin}/${file}`), g);
 
   return req.ok ? req : Promise.reject(new Error('Failed to retrieve this file'));
+}
+
+/**
+ * @param {string} bin
+ * @param {string} file
+ * @returns {Promise<Response>} OK
+ */
+export async function fileExists(bin, file) {
+  const req = await fetch(u(`/f/${bin}/${file}`), h);
+
+  return req.ok && req.status === 200;
 }
 
 /**

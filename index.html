@@ -67,10 +67,10 @@
       <td
         class="px-4 align-middle text-right"
       >
-        <div class="flex"><a
+        <div class="flex">
+          <a
             class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
-            target="_blank" href="${file.url}"
-        >
+            target="_blank" href="${file.url}">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="24"
@@ -108,7 +108,15 @@
             <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
             <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
             </svg>
-        </button></div>
+            <span class="sr-only">Remove</span>
+        </button>
+        <button
+            class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
+            onclick="onRename('${file.bin}', '${file.id}')">
+            <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24" fill="none" stroke="currentColor"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M14.06 9.02l.92.92L5.92 19H5v-.92l9.06-9.06M17.66 3c-.25 0-.51.1-.7.29l-1.83 1.83 3.75 3.75 1.83-1.83c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.2-.2-.45-.29-.71-.29zm-3.6 3.19L3 17.25V21h3.75L17.81 9.94l-3.75-3.75z"/></svg>
+            <span class="sr-only">Rename</span>
+        </button>
+        </div>
       </td>
       </tr>`;
       }
@@ -240,6 +248,16 @@
             await removeFile(bin, file);
             const row = document.querySelector(`[data-id="${file}"]`);
             row && row.remove();
+          }
+        };
+
+        window.onRename = async function (bin, file) {
+          const meta = await readMetadata(bin, file);
+          const name = prompt('Rename', meta.name);
+
+          if (name) {
+            await writeMetadata(bin, file, { ...meta, name });
+            await updateList();
           }
         };
 
@@ -379,9 +397,9 @@
           >
             Upload File
           </h2>
-          <!-- <p id="radix-:uploadH2:" class="text-sm text-muted-foreground">
-            Drag and drop your files here or click to select files.
-          </p> -->
+          <p id="radix-:uploadH2:" class="text-sm text-muted-foreground">
+            Drag and drop your files on the page or select a file.
+          </p>
         </div>
         <div class="grid gap-4 py-4">
           <div class="grid w-full gap-1.5">

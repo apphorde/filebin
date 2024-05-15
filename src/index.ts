@@ -11,6 +11,17 @@ import * as yauzl from 'yauzl';
 const rootDir = process.env.ROOT_DIR;
 export type Options = { port?: Number };
 
+async function onFileExists(_req, res, args) {
+  const { binId = '', fileId = '' } = args;
+  const filePath = join(rootDir, binId, fileId);
+
+  if (!(binId && fileId && existsSync(filePath))) {
+    return notFound(res);
+  }
+
+  res.end();
+}
+
 async function onReadFile(_req, res, args) {
   const { binId = '', fileId = '' } = args;
   const filePath = join(rootDir, binId, fileId);
@@ -361,6 +372,7 @@ const match = router({
   'DELETE /bin/:binId': onDeleteBin,
 
   'POST /f/:binId': onCreateFile,
+  'HEAD /f/:binId/:fileId': onFileExists,
   'GET /f/:binId/:fileId': onReadFile,
   'PUT /f/:binId/:fileId': onWriteFile,
   'DELETE /f/:binId/:fileId': onDeleteFile,
