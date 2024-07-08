@@ -25,9 +25,9 @@ import start from '@cloud-cli/storage';
 start({ rootDir: process.cwd() + '/data', port: 1234 });
 ```
 
-### As an ES Module
+### As an ESM Module
 
-Consuming it as an ES module: if the server is running at `https://bin.example.com`, import it as a module in a project:
+Consuming it as an ESM module: if the server is running at `https://bin.example.com`, import it as a module in a project:
 
 ```ts
 import { createBin, createFile, writeFile, readFile } from 'https://bin.example.com/index.mjs';
