@@ -7,6 +7,7 @@ import { writeFile, readFile, mkdir, readdir, stat, rm, unlink } from 'node:fs/p
 import router from 'micro-router';
 import * as yazl from 'yazl';
 import * as yauzl from 'yauzl';
+import { load } from "js-yaml";
 
 const rootDir = process.env.ROOT_DIR;
 export type Options = { port?: Number };
@@ -204,9 +205,15 @@ async function onDeleteBin(_req, res, args) {
 }
 
 async function onApiSpec(req, res) {
+  const isJson = req.url.endsWith('.json');
   const host = getProxyHost(req);
-  const spec = await readFile('./api.yaml', 'utf-8');
-  res.end(spec.replace('__API_HOST__', host));
+  let spec = (await readFile('./api.yaml', 'utf-8')).replace('__API_HOST__', host);
+
+  if (isJson) {
+    spec = String(load(spec));
+  }
+
+  res.end(spec);
 }
 
 async function onEsModule(req, res) {
@@ -366,6 +373,8 @@ async function readMeta(metaPath: string) {
 const match = router({
   'GET /': onGetUI,
   'GET /api': onApiSpec,
+  'GET /api.yaml': onApiSpec,
+  'GET /api.json': onApiSpec,
   'GET /index.mjs': onEsModule,
   'POST /bin': onCreateBin,
   'GET /bin/:binId': onReadBin,
