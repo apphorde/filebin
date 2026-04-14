@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -228,7 +228,7 @@
             uploadFiles(
               [...event.dataTransfer.items]
                 .filter((item) => item.kind === "file")
-                .map((item) => item.getAsFile())
+                .map((item) => item.getAsFile()),
             );
           } else {
             uploadFiles([...event.dataTransfer.files]);
@@ -267,7 +267,7 @@
 
         window.onRename = async function (bin, file) {
           const meta = await readMetadata(bin, file);
-          const name = prompt('Rename', meta.name);
+          const name = prompt("Rename", meta.name);
 
           if (name) {
             await writeMetadata(bin, file, { ...meta, name });
@@ -278,7 +278,7 @@
         heading.addEventListener("click", updateList);
         uploadform.addEventListener("submit", onUpload);
         fileuploadbutton.addEventListener("click", () =>
-          filedialog.showModal()
+          filedialog.showModal(),
         );
         filedownloadbutton.href = "/zip/" + binId;
         uploadclosebutton.addEventListener("click", () => filedialog.close());
@@ -293,6 +293,8 @@
           binurl.href = getBinUrl();
         }
 
+        createbin.addEventListener("click", onAddBin);
+
         updateList();
       });
     </script>
@@ -301,7 +303,9 @@
     <div id="dragover" class="hidden">
       <span>Drop your files here to start the upload.</span>
     </div>
-    <div class="bg-gray-100 flex items-center border-b px-6 w-full py-4">
+    <div
+      class="bg-gray-100 flex items-center justify-between border-b px-6 w-full py-4"
+    >
       <a class="flex items-center gap-2 font-semibold" href="#" id="heading"
         ><svg
           xmlns="http://www.w3.org/2000/svg"
@@ -321,7 +325,15 @@
         </svg>
         <span class="font-bold hidden md:inline">File Bin</span>
       </a>
-      <a href="#" class="ml-4 text-xs rounded" id="binurl"></a>
+      <a href="#" class="mx-4 text-xs rounded" id="binurl"></a>
+      <div class="flex items-center justify-end">
+        <button
+          class="py-2 px-4 text-sm text-white inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border-0 bg-blue-500"
+          id="createbin"
+        >
+          New bin
+        </button>
+      </div>
     </div>
 
     <main class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6">
