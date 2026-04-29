@@ -5,114 +5,452 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FileBin</title>
     <meta name="theme-color" content="#e91e63" />
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script type="module">
-      import * as bin from "/index.mjs";
-      window.bin = bin;
+    <script type="importmap">
+      {
+        "imports": {
+          "@li3/": "https://cdn.li3.dev/@li3/"
+        }
+      }
     </script>
     <script type="module">
-      import {
-        createBin,
-        removeBin,
-        listFiles,
-        readMetadata,
-        writeMetadata,
-        createFile,
-        writeFile,
-        removeFile,
-      } from "/index.mjs";
-
-      const oneKB = 1024;
-      const oneMB = oneKB * 1024;
-      const oneGB = oneMB * 1024;
-      const binId =
-        new URL(location.href).searchParams.get("bin") ||
-        localStorage.getItem("binId");
-
-      const fileSize = (bytes) => {
-        if (bytes < oneKB) {
-          return `${bytes} b`;
-        }
-
-        if (bytes < oneMB) {
-          return `${(bytes / oneKB).toFixed(2)}KB`;
-        }
-
-        if (bytes < oneGB) {
-          return `${(bytes / oneMB).toFixed(2)}MB`;
-        }
-
-        return "WTF?";
-      };
-
-      const fileDate = (d) =>
-        new Date(d).toISOString().slice(0, 19).replace("T", " ");
-
-      function createRow(file) {
-        return `<tr
-      class="border-b transition-colors hover:bg-gray-100"
-      data-bin="${file.bin}" data-id="${file.id}"
-      >
-      <td
-        class="px-4 py-2 align-middle font-medium"
-      >
-        ${file.name}
-      </td>
-      <td class="px-4 py-2 align-middle hidden md:table-cell">
-        ${fileDate(file.lastModified)}
-      </td>
-      <td class="px-4 py-2 align-middle hidden md:table-cell">
-        ${fileSize(file.size)}
-      </td>
-      <td
-        class="px-4 align-middle text-right"
-      >
-        <div class="flex">
-          <a
-            class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
-            target="_blank" href="${file.url}">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="h-4 w-4"
-          >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" x2="12" y1="15" y2="3"></line>
-            </svg>
-          <span class="sr-only">Download</span>
-        </a>
-        <button
-            class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
-            onclick="onDeleteFile('${file.bin}', '${file.id}')">
-            <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="h-4 w-4"
+      import '@li3/web';
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="h-screen w-full flex flex-col relative">
+    <template component="file-row">
+      <tr class="border-b transition-colors hover:bg-gray-100" attr-data-bin="file.bin" attr-data-id="file.id">
+        <td class="px-4 py-2 align-middle font-medium">{{file.name}}</td>
+        <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileDate(file.lastModified) }}</td>
+        <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileSize(file.size) }}</td>
+        <td class="px-4 align-middle text-right">
+          <div class="flex">
+            <a
+              class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
+              target="_blank"
+              prop-href="file.url"
             >
-            <path d="M3 6h18"></path>
-            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="h-4 w-4"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" x2="12" y1="15" y2="3"></line>
+              </svg>
+              <span class="sr-only">Download</span>
+            </a>
+            <button
+              class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
+              on-click="onDelete(file)"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="h-4 w-4"
+              >
+                <path d="M3 6h18"></path>
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+              </svg>
+              <span class="sr-only">Remove</span>
+            </button>
+            <button
+              class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
+              on-click="onRename(file)"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="h-4 w-4"
+              >
+                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
+                <path d="m15 5 4 4"></path>
+              </svg>
+              <span class="sr-only">Rename</span>
+            </button>
+          </div>
+        </td>
+      </tr>
+      <style>
+        file-row {
+          display: contents;
+        }
+      </style>
+      <script setup="">
+        import { defineProp, defineEvent } from '@li3/web';
+
+        export default function () {
+          defineProp('file');
+          const onRename = defineEvent('rename');
+          const onDelete = defineEvent('delete');
+
+          function fileDate(d) {
+            return new Date(d).toISOString().slice(0, 19).replace('T', ' ');
+          }
+
+          const oneKB = 1024;
+          const oneMB = oneKB * 1024;
+          const oneGB = oneMB * 1024;
+
+          function fileSize(bytes) {
+            if (bytes < oneKB) {
+              return `${bytes} b`;
+            }
+
+            if (bytes < oneMB) {
+              return `${(bytes / oneKB).toFixed(2)}KB`;
+            }
+
+            if (bytes < oneGB) {
+              return `${(bytes / oneMB).toFixed(2)}MB`;
+            }
+
+            return 'WTF?';
+          }
+
+          return {
+            fileSize,
+            fileDate,
+            onRename,
+            onDelete,
+          };
+        }
+      </script>
+    </template>
+
+    <template id="hello-app" app="">
+      <script setup="">
+        import { ref, computed, templateRef, onInit } from '@li3/web';
+        import {
+          createBin,
+          removeBin,
+          listFiles,
+          readMetadata,
+          writeMetadata,
+          createFile,
+          writeFile,
+          removeFile,
+        } from 'https://file.api.apphor.de/index.mjs';
+
+        export default function setup() {
+          const binId = ref(new URL(location.href).searchParams.get('bin') || localStorage.getItem('binId'));
+          const files = ref([]);
+          const loading = ref(false);
+          const sortedFiles = computed(() => Array.from(files.value || []).sort((a, b) => (a.name > b.name ? 1 : -1)));
+
+          const dragging = ref(false);
+          const fileUploadDialog = templateRef('filedialog');
+          const fileUploadInput = templateRef('fileupload');
+          const dragOverlay = templateRef('dragoverlay');
+
+          onInit(() => {
+            updateList();
+          });
+
+          function onDragEnter() {
+            dragging.value = true;
+          }
+
+          function onDragLeave(event) {
+            if (event.relatedTarget === dragOverlay.value || event.fromElement === dragOverlay.value) {
+              return;
+            }
+
+            dragging.value = false;
+          }
+
+          function onDrop(event) {
+            dragging.value = false;
+
+            if (event.dataTransfer.items) {
+              uploadFiles(
+                [...event.dataTransfer.items].filter((item) => item.kind === 'file').map((item) => item.getAsFile()),
+              );
+            } else {
+              uploadFiles([...event.dataTransfer.files]);
+            }
+          }
+
+          async function onAddBin(newTab = false) {
+            const { binId } = await createBin();
+            const url = getBinUrl(binId);
+
+            if (newTab) {
+              window.open(url, '_blank');
+            } else {
+              localStorage.setItem('binId', binId);
+              location.href = url;
+            }
+          }
+
+          async function onCopyUrl() {
+            navigator.clipboard.writeText(getBinUrl(binId.value));
+          }
+
+          async function onRename(fileRef) {
+            const { id, bin } = fileRef;
+            const meta = await readMetadata(bin, id);
+            const name = prompt('Rename', meta.name);
+
+            if (name) {
+              await writeMetadata(bin, id, { ...meta, name });
+              fileRef.name = name;
+            }
+          }
+
+          async function onDelete(fileRef) {
+            const { bin, id } = fileRef;
+
+            if (!confirm('Are you sure?')) return;
+
+            await removeFile(bin, id);
+            files.value = files.value.filter((f) => f.id !== id);
+          }
+
+          function onUpload(e) {
+            uploadFiles([...fileUploadInput.value.files]);
+            fileUploadDialog.value.close();
+          }
+
+          /**
+           * @param {File[]} files
+           */
+          async function uploadFiles(filesToUpload) {
+            for (const file of filesToUpload) {
+              const { fileId } = await createFile(binId.value);
+              const { name, type, lastModified } = file;
+              await writeMetadata(binId.value, fileId, {
+                name,
+                type,
+                lastModified,
+              });
+              await writeFile(binId.value, fileId, file);
+              const meta = await readMetadata(binId.value, fileId);
+              files.value = [...files.value, meta];
+            }
+          }
+
+          async function updateList() {
+            if (!binId.value) {
+              return;
+            }
+
+            loading.value = true;
+
+            try {
+              const fileIds = await listFiles(binId.value);
+              files.value = await Promise.all(fileIds.map((f) => readMetadata(binId.value, f)));
+            } finally {
+              loading.value = false;
+            }
+          }
+
+          function getBinUrl(id) {
+            const url = new URL(location.href);
+            url.searchParams.set('bin', id || binId.value);
+            return String(url);
+          }
+
+          return {
+            files,
+            binId,
+            dragging,
+            sortedFiles,
+            loading,
+            getBinUrl,
+            uploadFiles,
+            updateList,
+            onAddBin,
+            onCopyUrl,
+            onUpload,
+            onDragEnter,
+            onDragLeave,
+            onDrop,
+            onRename,
+            onDelete,
+          };
+        }
+      </script>
+      <div
+        class="h-full"
+        on-dragstart="onDragEnter($event)"
+        on-dragend="onDragLeave($event)"
+        on-dragenter="onDragEnter($event)"
+        on-dragleave="onDragLeave($event)"
+        on-dragover.prevent.stop="false"
+        on-drop.prevent.stop="onDrop($event)"
+      >
+        <div
+          ref="dragoverlay"
+          class="absolute flex items-center justify-center text-center border-dashed border-4 border-blue-500 bg-white text-2xl z-10 inset-0"
+          class-hidden="!dragging"
+        >
+          <span>Drop your files here to start the upload.</span>
+        </div>
+
+        <div class="bg-gray-100 flex items-center justify-between border-b px-6 w-full py-4">
+          <a class="flex items-center gap-2 font-semibold" href="#" on-click="updateList()"
+            ><svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-6 w-6"
+            >
+              <path
+                d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"
+              ></path>
             </svg>
-            <span class="sr-only">Remove</span>
-        </button>
-        <button
-            class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
-            onclick="onRename('${file.bin}', '${file.id}')">
+            <span class="font-bold hidden md:inline">File Bin</span>
+          </a>
+          <a attr-href="getBinUrl()" class="mx-4 text-xs rounded" on-click.prevent="onCopyUrl()">{{ binId }}</a>
+          <div class="flex items-center justify-end">
+            <button
+              class="py-2 px-4 text-sm text-white inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border-0 bg-blue-500"
+              on-click="onAddBin(true)"
+            >
+              New bin
+            </button>
+          </div>
+        </div>
+
+        <main class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6" class-hidden="!binId">
+          <div class="flex items-center justify-between">
+            <h1 class="font-semibold text-lg md:text-2xl">Your Files</h1>
+            <div>
+              <button
+                class="inline-flex items-center justify-center rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-blue-500 text-white hover:bg-accent hover:text-accent-foreground h-8 px-3 py-1 border-0"
+                type="button"
+                on-click="filedialog.showModal()"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="radix-:upload:"
+                data-state="closed"
+              >
+                Upload Files
+              </button>
+              <a
+                class="inline-flex items-center justify-center rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-blue-500 text-blue-500 hover:bg-accent hover:text-accent-foreground h-8 px-3 py-1"
+                attr-href="'/zip/' + binId"
+              >
+                Download (zip)
+              </a>
+            </div>
+          </div>
+          <div class="border shadow-sm rounded-md">
+            <table class="w-full caption-bottom text-sm">
+              <thead class="[&_tr]:border-b">
+                <tr class="border-b transition-colors">
+                  <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground">File Name</th>
+                  <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground hidden md:table-cell">
+                    Last modified
+                  </th>
+                  <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground hidden md:table-cell">
+                    Size
+                  </th>
+                  <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground w-1">&nbsp;</th>
+                </tr>
+              </thead>
+              <tbody class="[&_tr:last-child]:border-0">
+                <template if="loading">
+                  <td colspan="4" class="p-8 text-center">Loading your files...</td>
+                </template>
+                <template for="file of sortedFiles">
+                  <file-row prop-file="file" on-rename="onRename(file)" on-delete="onDelete(file)"></file-row>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </main>
+        <aside class="flex flex-1 items-center justify-center" class-hidden="binId">
+          <div class="flex flex-col items-center p-8 bg-gray-100 rounded-lg">
+            <h1 class="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none mb-6">
+              You don't have a bin yet!
+            </h1>
+            <p class="text-xl mb-12">Let's create one for you.</p>
+            <button
+              class="py-2 px-4 text-white inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border-0 bg-blue-500"
+              on-click="onAddBin()"
+            >
+              Create file bin
+            </button>
+          </div>
+        </aside>
+      </div>
+      <dialog ref="filedialog">
+        <form
+          on-submit.stop.prevent="onUpload()"
+          aria-describedby="radix-:uploadH2:"
+          aria-labelledby="radix-:uploadH1:"
+          data-state="open"
+          class="fixed bg-white left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg sm:max-w-[425px]"
+          tabindex="-1"
+          style="pointer-events: auto"
+        >
+          <div class="flex flex-col space-y-1.5 text-center sm:text-left">
+            <h2 id="radix-:uploadH1:" class="text-lg font-semibold leading-none tracking-tight mb-4">Upload File</h2>
+            <p id="radix-:uploadH2:" class="text-sm text-muted-foreground">
+              Drag and drop your files on the page or select a file.
+            </p>
+          </div>
+          <div class="grid gap-4 py-4">
+            <div class="grid w-full gap-1.5">
+              <label
+                class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 sr-only"
+                for="fileupload"
+              >
+                Upload File
+              </label>
+              <input
+                class="flex h-10 w-full bg-background text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 border border-gray-200 rounded-md p-2"
+                id="fileupload"
+                ref="fileupload"
+                type="file"
+                multiple
+              />
+            </div>
+          </div>
+          <div class="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
+            <button
+              class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-blue-500 text-white px-4 py-2"
+              type="submit"
+            >
+              Upload
+            </button>
+          </div>
+          <button
+            type="button"
+            on-click="filedialog.close()"
+            class="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="24"
@@ -125,357 +463,13 @@
               stroke-linejoin="round"
               class="h-4 w-4"
             >
-              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
-              <path d="m15 5 4 4"></path>
+              <path d="M18 6 6 18"></path>
+              <path d="m6 6 12 12"></path>
             </svg>
-            <span class="sr-only">Rename</span>
-        </button>
-        </div>
-      </td>
-      </tr>`;
-      }
-
-      const editBtn = `<button class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3">
-            <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="h-4 w-4"
-            >
-            <path d="M4 13.5V4a2 2 0 0 1 2-2h8.5L20 7.5V20a2 2 0 0 1-2 2h-5.5"></path>
-            <polyline points="14 2 14 8 20 8"></polyline>
-            <path d="M10.42 12.61a2.1 2.1 0 1 1 2.97 2.97L7.95 21 4 22l.99-3.95 5.43-5.44Z"></path>
-            </svg>
-        </button>`;
-
-      /**
-       * @param {File[]} files
-       */
-      async function uploadFiles(files) {
-        for (const file of files) {
-          const { fileId } = await createFile(binId);
-          const { name, type, lastModified } = file;
-          await writeMetadata(binId, fileId, { name, type, lastModified });
-          await writeFile(binId, fileId, file);
-          addFileToList(binId, fileId);
-        }
-      }
-
-      async function addFileToList(binId, fileId) {
-        const meta = await readMetadata(binId, fileId);
-        filelist.innerHTML += createRow(meta);
-      }
-
-      async function updateList() {
-        if (!binId) {
-          return;
-        }
-
-        const rows = document.querySelector("#filelist");
-        const fileList = await listFiles(binId);
-
-        rows.innerHTML = "";
-
-        fileList.sort((a, b) => (a.meta?.name > b.meta?.name ? 1 : -1));
-        fileList.forEach((fileId) => addFileToList(binId, fileId));
-      }
-
-      function getBinUrl(id) {
-        const url = new URL(location.href);
-        url.searchParams.set("bin", id || binId);
-        return String(url);
-      }
-
-      function setupFileDrop() {
-        const dragZone = document.body;
-        const dragOverlay = document.getElementById("dragover");
-
-        function dragEnter() {
-          dragOverlay.className =
-            "absolute flex items-center justify-center text-center border-dashed border-4 border-blue-500 bg-white text-2xl z-10 inset-0";
-        }
-
-        function dragLeave(event) {
-          if (
-            event.relatedTarget === dragOverlay ||
-            event.fromElement === dragOverlay
-          ) {
-            return;
-          }
-
-          dragOverlay.className = "hidden";
-        }
-
-        dragZone.addEventListener("dragstart", dragEnter);
-        dragZone.addEventListener("dragend", dragLeave);
-        dragZone.addEventListener("dragenter", dragEnter);
-        dragZone.addEventListener("dragleave", dragLeave);
-        dragZone.addEventListener("dragover", function (event) {
-          event.preventDefault();
-        });
-
-        dragZone.addEventListener("drop", function (event) {
-          event.preventDefault();
-          dragOverlay.className = "hidden";
-
-          if (event.dataTransfer.items) {
-            uploadFiles(
-              [...event.dataTransfer.items]
-                .filter((item) => item.kind === "file")
-                .map((item) => item.getAsFile()),
-            );
-          } else {
-            uploadFiles([...event.dataTransfer.files]);
-          }
-        });
-      }
-
-      window.addEventListener("DOMContentLoaded", () => {
-        function onUpload(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          uploadFiles([...fileupload.files]);
-          filedialog.close();
-        }
-
-        setupFileDrop();
-
-        async function onAddBin() {
-          const { binId } = await createBin();
-          localStorage.setItem("binId", binId);
-          location.href = getBinUrl(binId);
-        }
-
-        async function onCopyUrl(e) {
-          e.preventDefault();
-          navigator.clipboard.writeText(getBinUrl());
-        }
-
-        window.onDeleteFile = async function (bin, file) {
-          if (confirm("Are you sure?")) {
-            await removeFile(bin, file);
-            const row = document.querySelector(`[data-id="${file}"]`);
-            row && row.remove();
-          }
-        };
-
-        window.onRename = async function (bin, file) {
-          const meta = await readMetadata(bin, file);
-          const name = prompt("Rename", meta.name);
-
-          if (name) {
-            await writeMetadata(bin, file, { ...meta, name });
-            await updateList();
-          }
-        };
-
-        heading.addEventListener("click", updateList);
-        uploadform.addEventListener("submit", onUpload);
-        fileuploadbutton.addEventListener("click", () =>
-          filedialog.showModal(),
-        );
-        filedownloadbutton.href = "/zip/" + binId;
-        uploadclosebutton.addEventListener("click", () => filedialog.close());
-
-        if (!binId) {
-          newbin.classList.remove("hidden");
-          document.querySelector("main").classList.add("hidden");
-          addbin.addEventListener("click", onAddBin);
-        } else {
-          binurl.innerText = binId;
-          binurl.addEventListener("click", onCopyUrl);
-          binurl.href = getBinUrl();
-        }
-
-        createbin.addEventListener("click", onAddBin);
-
-        updateList();
-      });
-    </script>
-  </head>
-  <body class="h-screen w-full flex flex-col relative">
-    <div id="dragover" class="hidden">
-      <span>Drop your files here to start the upload.</span>
-    </div>
-    <div
-      class="bg-gray-100 flex items-center justify-between border-b px-6 w-full py-4"
-    >
-      <a class="flex items-center gap-2 font-semibold" href="#" id="heading"
-        ><svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          class="h-6 w-6"
-        >
-          <path
-            d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"
-          ></path>
-        </svg>
-        <span class="font-bold hidden md:inline">File Bin</span>
-      </a>
-      <a href="#" class="mx-4 text-xs rounded" id="binurl"></a>
-      <div class="flex items-center justify-end">
-        <button
-          class="py-2 px-4 text-sm text-white inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border-0 bg-blue-500"
-          id="createbin"
-        >
-          New bin
-        </button>
-      </div>
-    </div>
-
-    <main class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6">
-      <div class="flex items-center justify-between">
-        <h1 class="font-semibold text-lg md:text-2xl">Your Files</h1>
-        <div>
-          <button
-            class="inline-flex items-center justify-center rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-blue-500 text-white hover:bg-accent hover:text-accent-foreground h-8 px-3 py-1 border-0"
-            type="button"
-            id="fileuploadbutton"
-            aria-haspopup="dialog"
-            aria-expanded="false"
-            aria-controls="radix-:upload:"
-            data-state="closed"
-          >
-            Upload Files
+            <span class="sr-only">Close</span>
           </button>
-          <a
-            class="inline-flex items-center justify-center rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-blue-500 text-blue-500 hover:bg-accent hover:text-accent-foreground h-8 px-3 py-1"
-            href="#"
-            id="filedownloadbutton"
-          >
-            Download (zip)
-          </a>
-        </div>
-      </div>
-      <div class="border shadow-sm rounded-md">
-        <table class="w-full caption-bottom text-sm">
-          <thead class="[&_tr]:border-b">
-            <tr class="border-b transition-colors">
-              <th
-                class="h-12 px-4 text-left align-middle font-bold text-muted-foreground"
-              >
-                File Name
-              </th>
-              <th
-                class="h-12 px-4 text-left align-middle font-bold text-muted-foreground hidden md:table-cell"
-              >
-                Last modified
-              </th>
-              <th
-                class="h-12 px-4 text-left align-middle font-bold text-muted-foreground hidden md:table-cell"
-              >
-                Size
-              </th>
-              <th
-                class="h-12 px-4 text-left align-middle font-bold text-muted-foreground w-1"
-              >
-                &nbsp;
-              </th>
-            </tr>
-          </thead>
-          <tbody class="[&_tr:last-child]:border-0" id="filelist"></tbody>
-        </table>
-      </div>
-    </main>
-    <aside class="flex flex-1 items-center justify-center hidden" id="newbin">
-      <div class="flex flex-col items-center p-8 bg-gray-100 rounded-lg">
-        <h1
-          class="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none mb-6"
-        >
-          You don't have a bin yet!
-        </h1>
-        <p class="text-xl mb-12">Let's create one for you.</p>
-        <button
-          class="py-2 px-4 text-white inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border-0 bg-blue-500"
-          id="addbin"
-        >
-          Create file bin
-        </button>
-      </div>
-    </aside>
-    <dialog id="filedialog">
-      <form
-        id="uploadform"
-        aria-describedby="radix-:uploadH2:"
-        aria-labelledby="radix-:uploadH1:"
-        data-state="open"
-        class="fixed bg-white left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg sm:max-w-[425px]"
-        tabindex="-1"
-        style="pointer-events: auto"
-      >
-        <div class="flex flex-col space-y-1.5 text-center sm:text-left">
-          <h2
-            id="radix-:uploadH1:"
-            class="text-lg font-semibold leading-none tracking-tight mb-4"
-          >
-            Upload File
-          </h2>
-          <p id="radix-:uploadH2:" class="text-sm text-muted-foreground">
-            Drag and drop your files on the page or select a file.
-          </p>
-        </div>
-        <div class="grid gap-4 py-4">
-          <div class="grid w-full gap-1.5">
-            <label
-              class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 sr-only"
-              for="fileupload"
-            >
-              Upload File
-            </label>
-            <input
-              class="flex h-10 w-full bg-background text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 border border-gray-200 rounded-md p-2"
-              id="fileupload"
-              type="file"
-              multiple
-            />
-          </div>
-        </div>
-        <div
-          class="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2"
-        >
-          <button
-            class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-blue-500 text-white px-4 py-2"
-            type="submit"
-          >
-            Upload
-          </button>
-        </div>
-        <button
-          type="button"
-          id="uploadclosebutton"
-          class="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="h-4 w-4"
-          >
-            <path d="M18 6 6 18"></path>
-            <path d="m6 6 12 12"></path>
-          </svg>
-          <span class="sr-only">Close</span>
-        </button>
-      </form>
-    </dialog>
+        </form>
+      </dialog>
+    </template>
   </body>
 </html>
