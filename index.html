@@ -12,10 +12,7 @@
         }
       }
     </script>
-    <script type="module">
-      import '@li3/web';
-    </script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.tailwindcss.com"></script>
   </head>
   <body class="h-screen w-full flex flex-col relative">
     <template component="file-row">
@@ -145,6 +142,14 @@
       <script setup="">
         import { ref, computed, templateRef, onInit } from '@li3/web';
         import {
+          events,
+          getProfile,
+          getProperty,
+          setProperty,
+          signIn,
+          signOut,
+        } from 'https://auth.api.apphor.de/index.mjs';
+        import {
           createBin,
           removeBin,
           listFiles,
@@ -160,14 +165,20 @@
           const files = ref([]);
           const loading = ref(false);
           const sortedFiles = computed(() => Array.from(files.value || []).sort((a, b) => (a.name > b.name ? 1 : -1)));
-
+          const profile = ref(null);
           const dragging = ref(false);
+          const creating = ref(false);
           const fileUploadDialog = templateRef('filedialog');
           const fileUploadInput = templateRef('fileupload');
           const dragOverlay = templateRef('dragoverlay');
 
-          onInit(() => {
+          onInit(async () => {
             updateList();
+            events.addEventListener('state', (event) => {
+              profile.value = event.detail;
+            });
+
+            profile.value = await getProfile();
           });
 
           function onDragEnter() {
@@ -194,15 +205,32 @@
             }
           }
 
+          async function storeBinId(binId) {
+            if (profile.value) {
+              try {
+                const list = JSON.parse((await getProperty('binList')) || '[]');
+                list.push(binId);
+                await setProperty('binList', JSON.stringify(list));
+              } catch (error) {
+                console.error(error);
+              }
+            }
+          }
+
           async function onAddBin(newTab = false) {
+            creating.value = true;
+
             const { binId } = await createBin();
             const url = getBinUrl(binId);
 
+            storeBinId(binId);
+
             if (newTab) {
               window.open(url, '_blank');
+              creating.value = false;
             } else {
               localStorage.setItem('binId', binId);
-              location.href = url;
+              setTimeout(() => (location.href = url), 1000);
             }
           }
 
@@ -291,6 +319,9 @@
             onDrop,
             onRename,
             onDelete,
+            signIn,
+            signOut,
+            profile,
           };
         }
       </script>
@@ -329,16 +360,30 @@
                 d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"
               ></path>
             </svg>
-            <span class="font-bold hidden md:inline">File Bin</span>
+            <span class="font-bold hidden md:inline whitespace-nowrap">File Bin</span>
           </a>
-          <a attr-href="getBinUrl()" class="mx-4 text-xs rounded" on-click.prevent="onCopyUrl()">{{ binId }}</a>
-          <div class="flex items-center justify-end">
+          <a attr-href="getBinUrl()" class="mx-4 text-xs rounded hidden md:block" on-click.prevent="onCopyUrl()"
+            >{{ binId }}</a
+          >
+          <div class="flex items-center justify-end gap-2">
             <button
-              class="py-2 px-4 text-sm text-white inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border-0 bg-blue-500"
+              class="py-2 px-4 text-sm text-blue-500 inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-500 bg-white"
               on-click="onAddBin(true)"
+              prop-disabled="creating"
             >
               New bin
             </button>
+            <div>
+              <template if="profile"> Hi, {{ profile?.name }} </template>
+              <template if="!profile">
+                <button
+                  class="py-2 px-4 text-sm text-white inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-700 bg-blue-500"
+                  on-click="profile ? signOut() : signIn(true)"
+                >
+                  Sign In
+                </button>
+              </template>
+            </div>
           </div>
         </div>
 
@@ -365,7 +410,7 @@
               </a>
             </div>
           </div>
-          <div class="border shadow-sm rounded-md">
+          <div class="border shadow-sm rounded-md w-full overflow-x-auto">
             <table class="w-full caption-bottom text-sm">
               <thead class="[&_tr]:border-b">
                 <tr class="border-b transition-colors">
@@ -471,5 +516,8 @@
         </form>
       </dialog>
     </template>
+    <script type="module">
+      import '@li3/web';
+    </script>
   </body>
 </html>
