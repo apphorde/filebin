@@ -12,7 +12,6 @@
         }
       }
     </script>
-    <script defer src="https://cdn.tailwindcss.com"></script>
   </head>
   <body class="h-screen w-full flex flex-col relative">
     <template component="file-row">
@@ -162,6 +161,7 @@
 
         export default function setup() {
           const binId = ref(new URL(location.href).searchParams.get('bin') || localStorage.getItem('binId'));
+          const binList = ref([]);
           const files = ref([]);
           const loading = ref(false);
           const sortedFiles = computed(() => Array.from(files.value || []).sort((a, b) => (a.name > b.name ? 1 : -1)));
@@ -174,8 +174,10 @@
 
           onInit(async () => {
             updateList();
-            events.addEventListener('state', (event) => {
+
+            events.addEventListener('state', async (event) => {
               profile.value = event.detail;
+              binList.value = JSON.parse((await getProperty('binList')) || '[]');
             });
 
             profile.value = await getProfile();
@@ -210,6 +212,7 @@
               try {
                 const list = JSON.parse((await getProperty('binList')) || '[]');
                 list.push(binId);
+                binList.value = [...binList.value, binId];
                 await setProperty('binList', JSON.stringify(list));
               } catch (error) {
                 console.error(error);
@@ -270,7 +273,7 @@
             for (const file of filesToUpload) {
               const { fileId } = await createFile(binId.value);
               const { name, type, lastModified } = file;
-              await writeMetadata(binId.value, fileId, {
+              await writeMetadata(binIdx.value, fileId, {
                 name,
                 type,
                 lastModified,
@@ -305,6 +308,7 @@
           return {
             files,
             binId,
+            binList,
             dragging,
             creating,
             sortedFiles,
@@ -364,7 +368,7 @@
             <span class="font-bold hidden md:inline whitespace-nowrap">File Bin</span>
           </a>
           <a attr-href="getBinUrl()" class="mx-4 text-xs rounded hidden md:block" on-click.prevent="onCopyUrl()"
-            >{{ binId }}</a
+            >{{ binId || '' }}</a
           >
           <div class="flex items-center justify-end gap-2">
             <button
@@ -443,18 +447,28 @@
             </table>
           </div>
         </main>
-        <aside class="flex flex-1 items-center justify-center" class-hidden="binId">
+        <aside class="flex flex-1 items-center justify-center mt-12" class-hidden="binId">
           <div class="flex flex-col items-center p-8 bg-gray-100 rounded-lg">
-            <h1 class="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none mb-6">
-              You don't have a bin yet!
-            </h1>
-            <p class="text-xl mb-12">Let's create one for you.</p>
-            <button
-              class="py-2 px-4 text-white inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border-0 bg-blue-500"
-              on-click="onAddBin()"
-            >
-              Create file bin
-            </button>
+            <template if="!binList?.length">
+              <h1 class="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none mb-6">
+                You don't have a bin yet!
+              </h1>
+              <p class="text-xl mb-12">Let's create one for you.</p>
+              <button
+                class="py-2 px-4 text-white inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border-0 bg-blue-500"
+                on-click="onAddBin()"
+              >
+                Create file bin
+              </button>
+            </template>
+
+            <template if="binList?.length">
+              <h1 class="text-2xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none mb-6">Recent file bins</h1>
+            </template>
+
+            <template for="binId of binList">
+              <a class="flex py-2 px-4 items-center min-w-64" prop-href="getBinUrl(binId)">{{ binId }}</a>
+            </template>
           </div>
         </aside>
       </div>
@@ -527,5 +541,6 @@
     <script type="module">
       import '@li3/web';
     </script>
+    <script defer async src="https://cdn.tailwindcss.com"></script>
   </body>
 </html>
