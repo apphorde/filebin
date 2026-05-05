@@ -273,7 +273,7 @@
             for (const file of filesToUpload) {
               const { fileId } = await createFile(binId.value);
               const { name, type, lastModified } = file;
-              await writeMetadata(binIdx.value, fileId, {
+              await writeMetadata(binId.value, fileId, {
                 name,
                 type,
                 lastModified,
