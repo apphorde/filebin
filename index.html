@@ -183,6 +183,11 @@
             profile.value = await getProfile();
           });
 
+          function onHomeClick() {
+            localStorage.setItem('binId', binId);
+            location.href = '/';
+          }
+
           function onDragEnter() {
             dragging.value = true;
           }
@@ -348,7 +353,7 @@
         </div>
 
         <div class="bg-gray-100 flex items-center justify-between border-b px-6 w-full py-4">
-          <a class="flex items-center gap-2 font-semibold" href="#" on-click="updateList()"
+          <a class="flex items-center gap-2 font-semibold" href="#" on-click="onHomeClick()"
             ><svg
               xmlns="http://www.w3.org/2000/svg"
               width="24"
@@ -448,7 +453,7 @@
           </div>
         </main>
         <aside class="flex flex-1 items-center justify-center mt-12" class-hidden="binId">
-          <div class="flex flex-col items-center p-8 bg-gray-100 rounded-lg">
+          <div class="p-8 bg-gray-100 rounded-lg">
             <template if="!binList?.length">
               <h1 class="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none mb-6">
                 You don't have a bin yet!
@@ -463,11 +468,11 @@
             </template>
 
             <template if="binList?.length">
-              <h1 class="text-2xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none mb-6">Recent file bins</h1>
+              <h1 class="text-2xl font-bold mb-6">Recent file bins</h1>
             </template>
 
             <template for="binId of binList">
-              <a class="flex py-2 px-4 items-center min-w-64" prop-href="getBinUrl(binId)">{{ binId }}</a>
+              <a class="block py-2 w-full" prop-href="getBinUrl(binId)">{{ binId }}</a>
             </template>
           </div>
         </aside>
