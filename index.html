@@ -184,8 +184,9 @@
           });
 
           function onHomeClick() {
-            localStorage.setItem('binId', binId);
+            localStorage.setItem('binId', '');
             location.href = '/';
+            window.reload();
           }
 
           function onDragEnter() {
