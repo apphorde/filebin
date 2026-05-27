@@ -24,7 +24,7 @@
             <a
               class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
               target="_blank"
-              prop-href="file.url"
+              bind-href="file.url"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -381,7 +381,7 @@
             <button
               class="py-2 px-4 text-sm text-blue-500 inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-500 bg-white"
               on-click="onAddBin(true)"
-              prop-disabled="creating"
+              bind-disabled="creating"
             >
               New bin
             </button>
@@ -448,7 +448,7 @@
                   <td colspan="4" class="p-8 text-center">Loading your files...</td>
                 </template>
                 <template for="file of sortedFiles">
-                  <file-row prop-file="file" on-rename="onRename(file)" on-delete="onDelete(file)"></file-row>
+                  <file-row bind-file="file" on-rename="onRename(file)" on-delete="onDelete(file)"></file-row>
                 </template>
               </tbody>
             </table>
@@ -474,7 +474,7 @@
             </template>
 
             <template for="binId of binList">
-              <a class="block py-2 w-full" prop-href="getBinUrl(binId)">{{ binId }}</a>
+              <a class="block py-2 w-full" bind-href="getBinUrl(binId)">{{ binId }}</a>
             </template>
           </div>
         </aside>
