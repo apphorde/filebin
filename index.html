@@ -16,7 +16,7 @@
   <body class="h-screen w-full flex flex-col relative">
     <template component="file-row">
       <tr class="border-b transition-colors hover:bg-gray-100" attr-data-bin="file.bin" attr-data-id="file.id">
-        <td class="px-4 py-2 align-middle font-medium">{{file.name}}</td>
+        <td class="px-4 py-2 align-middle font-medium"><a bind-href="file.url" attr-download="file.name">{{file.name}}</a></td>
         <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileDate(file.lastModified) }}</td>
         <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileSize(file.size) }}</td>
         <td class="px-4 align-middle text-right">
