@@ -460,7 +460,10 @@
                 </template>
                 <template if="!loading && !sortedFiles?.length">
                   <td colspan="4" class="p-8 text-center">
-                    <p>New files will appear here once you <button on-click="filedialog.showModal()">upload them</button></p>
+                    <p class="block mb-2">New files will appear here once you start uploading.</p>
+                    <button
+                      class="inline-flex items-center justify-center rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-blue-500 text-white hover:bg-accent hover:text-accent-foreground h-8 px-3 py-1 border-0"
+                      on-click="filedialog.showModal()">Upload Files</button>
                   </td>
                 </template>
                 <template for="file of sortedFiles">
