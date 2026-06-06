@@ -458,6 +458,11 @@
                 <template if="loading">
                   <td colspan="4" class="p-8 text-center">Loading your files...</td>
                 </template>
+                <template if="!loading && !sortedFiles?.length">
+                  <td colspan="4" class="p-8 text-center">
+                    <p>New files will appear here once you <button on-click="filedialog.showModal()">upload them</button></p>
+                  </td>
+                </template>
                 <template for="file of sortedFiles">
                   <file-row bind-file="file" on-rename="onRename(file)" on-delete="onDelete(file)"></file-row>
                 </template>
