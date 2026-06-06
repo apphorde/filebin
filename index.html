@@ -15,7 +15,7 @@
   </head>
   <body class="h-screen w-full flex flex-col relative">
     <template component="file-row">
-      <tr class="border-b transition-colors hover:bg-gray-100" class-opacity-40="file.partial" attr-data-bin="file.bin" attr-data-id="file.id">
+      <tr class="border-b transition-colors hover:bg-gray-100" class-opacity-40="partialFiles.includes(file.id)" attr-data-bin="file.bin" attr-data-id="file.id">
         <td class="px-4 py-2 align-middle font-medium"><a bind-href="file.url" attr-download="file.name">{{file.name}}</a></td>
         <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileDate(file.lastModified) }}</td>
         <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileSize(file.size) }}</td>
@@ -171,6 +171,7 @@
           const fileUploadDialog = templateRef('filedialog');
           const fileUploadInput = templateRef('fileupload');
           const dragOverlay = templateRef('dragoverlay');
+          const partialFiles = ref([]);
 
           onInit(async () => {
             updateList();
@@ -279,24 +280,25 @@
             for (const file of filesToUpload) {
               const { fileId } = await createFile(binId.value);
               const { name, type, lastModified } = file;
-              await writeMetadata(binId.value, fileId, {
-                name,
-                type,
-                lastModified,
-              });
+
               const meta = {
                 name,
                 type,
                 lastModified,
-                partial: true,
               };
+
               files.value = [meta, ...files.value];
+              partialFiles.value.push(fileId);
+
+              writeMetadata(binId.value, fileId, {
+                name,
+                type,
+                lastModified,
+              });
+
               writeFile(binId.value, fileId, file).then(async () => {
-                const newMeta = {
-                  ...await readMetadata(binId.value, fileId),
-                  partial: false,
-                };
-                Object.assign(meta, newMeta);
+                Object.assign(meta, await readMetadata(binId.value, fileId));
+                partialFiles.value = partialFiles.value.filter(x => x !== fileId);
               });
             }
           }
