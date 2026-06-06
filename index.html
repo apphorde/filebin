@@ -15,7 +15,7 @@
   </head>
   <body class="h-screen w-full flex flex-col relative">
     <template component="file-row">
-      <tr class="border-b transition-colors hover:bg-gray-100" class-opacity-40="partialFiles.includes(file.id)" attr-data-bin="file.bin" attr-data-id="file.id">
+      <tr class="border-b transition-colors hover:bg-gray-100" class-opacity-40="partial" attr-data-bin="file.bin" attr-data-id="file.id">
         <td class="px-4 py-2 align-middle font-medium"><a bind-href="file.url" attr-download="file.name">{{file.name}}</a></td>
         <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileDate(file.lastModified) }}</td>
         <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileSize(file.size) }}</td>
@@ -100,6 +100,8 @@
 
         export default function () {
           defineProp('file');
+          defineProp('partial');
+
           const onRename = defineEvent('rename');
           const onDelete = defineEvent('delete');
 
@@ -469,7 +471,7 @@
                   </td>
                 </template>
                 <template for="file of sortedFiles">
-                  <file-row bind-file="file" on-rename="onRename(file)" on-delete="onDelete(file)"></file-row>
+                  <file-row bind-partial="partialFiles.includes(file.id)" bind-file="file" on-rename="onRename(file)" on-delete="onDelete(file)"></file-row>
                 </template>
               </tbody>
             </table>
