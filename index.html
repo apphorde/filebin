@@ -276,6 +276,8 @@
            * @param {File[]} files
            */
           async function uploadFiles(filesToUpload) {
+            const promises = [];
+
             for (const file of filesToUpload) {
               const { fileId } = await createFile(binId.value);
               const { name, type, lastModified } = file;
@@ -284,10 +286,12 @@
                 type,
                 lastModified,
               });
-              await writeFile(binId.value, fileId, file);
               const meta = await readMetadata(binId.value, fileId);
-              files.value = [...files.value, meta];
+              files.value = [meta, ...files.value];
+              promises.push(writeFile(binId.value, fileId, file));
             }
+
+            await Promise.all(promises);
           }
 
           async function updateList() {
