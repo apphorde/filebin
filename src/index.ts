@@ -344,7 +344,7 @@ async function tryCatch(res, fn) {
 
 function getProxyHost(req: IncomingMessage) {
   return new URL(
-    `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['x-forwarded-for'] || req.headers.host}`,
+    `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`,
   ).toString();
 }
 
