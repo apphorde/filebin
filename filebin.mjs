@@ -27,6 +27,17 @@ export async function removeBin(bin) {
 
 /**
  * @param {string} bin
+ * @param {string} newId
+ * @returns {Promise<boolean>} OK
+ */
+export async function renameBin(bin, newId) {
+  const req = await fetch(u(`/bin/${bin}/${newId}`), { method: 'MOVE', mode: 'cors' });
+
+  return req.ok || Promise.reject(new Error('Failed to rename bin'));
+}
+
+/**
+ * @param {string} bin
  * @returns {Promise<string[]>} file ids
  */
 export async function listFiles(bin) {
@@ -51,7 +62,7 @@ export async function downloadZip(bin) {
  * @returns {Promise<ArrayBuffer>} zip file
  */
 export async function uploadZip(bin, zipContent) {
-  const req = await fetch(getZipUrl(bin), {...p, body: zipContent });
+  const req = await fetch(getZipUrl(bin), { ...p, body: zipContent });
 
   return req.ok ? await req.json() : Promise.reject(new Error('Failed to import a zip in this bin'));
 }
@@ -130,12 +141,12 @@ export async function writeFile(bin, file, content) {
  * @returns {Promise<boolean>}
  */
 export async function writeMetadata(bin, file, content) {
-  const req = await fetch(u(`/meta/${bin}/${file}`), {
+  const req = await fetch(u('/' + ['meta', bin, file].filter(Boolean).join('/')), {
     method: 'PUT',
     mode: 'cors',
     body: JSON.stringify(content),
   });
-  return req.ok || Promise.reject(new Error('Failed to update file metadata'));
+  return req.ok || Promise.reject(new Error('Failed to update metadata'));
 }
 
 /**

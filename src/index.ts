@@ -2,12 +2,12 @@ import type { IncomingMessage } from 'node:http';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { writeFile, readFile, mkdir, readdir, stat, rm, unlink } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { writeFile, readFile, mkdir, readdir, stat, rm, rename, unlink } from 'node:fs/promises';
 import router from 'micro-router';
 import * as yazl from 'yazl';
 import * as yauzl from 'yauzl';
-import { load } from "js-yaml";
+import { load } from 'js-yaml';
 
 const rootDir = process.env.ROOT_DIR;
 export type Options = { port?: Number };
@@ -47,10 +47,10 @@ async function onReadFile(_req, res, args) {
 
 async function onReadMetadata(req, res, args) {
   const { binId = '', fileId = '' } = args;
-  const filePath = join(rootDir, binId, fileId);
+  const filePath = join(...[rootDir, binId, fileId].filter(Boolean));
   const metaPath = filePath + '.meta';
 
-  if (!(binId && fileId && existsSync(filePath))) {
+  if (!(binId && existsSync(filePath))) {
     return notFound(res);
   }
 
@@ -63,12 +63,12 @@ async function onReadMetadata(req, res, args) {
     res.end(
       JSON.stringify({
         ...meta,
-        id: fileId,
+        id: fileId || undefined,
         bin: binId,
         size: stats.size,
         name: meta.name || fileId,
         lastModified: new Date(stats.mtime).toISOString(),
-        url: String(new URL(`/f/${binId}/${fileId}`, baseUrl)),
+        url: String(new URL('/' + ['f', binId, fileId].filter(Boolean).join('/'), baseUrl)),
       }),
     );
   });
@@ -76,10 +76,10 @@ async function onReadMetadata(req, res, args) {
 
 async function onWriteMetadata(req, res, args) {
   const { binId = '', fileId = '' } = args;
-  const filePath = join(rootDir, binId, fileId);
+  const filePath = join(...[rootDir, binId, fileId].filter(Boolean));
   const metaPath = filePath + '.meta';
 
-  if (!(binId && fileId && existsSync(filePath))) {
+  if (!(binId && existsSync(filePath))) {
     return notFound(res);
   }
 
@@ -89,12 +89,12 @@ async function onWriteMetadata(req, res, args) {
 
     if (meta) {
       await writeFile(metaPath, JSON.stringify(JSON.parse(meta)));
-      const url = String(new URL(`/f/${binId}/${fileId}`, getProxyHost(req)));
+      const url = String(new URL('/' + ['f', binId, fileId].filter(Boolean).join('/'), getProxyHost(req)));
       res.writeHead(202).end(JSON.stringify({ url }));
       return;
     }
 
-    res.writeHead(400).end();
+    badRequest(res);
   });
 }
 
@@ -166,7 +166,31 @@ function onCreateBin(req, res) {
     const binId = randomUUID();
     ensureDir(join(rootDir, binId));
     res.setHeader('location', String(new URL('/bin/' + binId, getProxyHost(req))));
-    res.writeHead(201).end(`{"binId": "${binId}"}`);
+    res.writeHead(201).end(JSON.stringify({ binId }));
+  });
+}
+
+function onRenameBin(req, res, args) {
+  tryCatch(res, async () => {
+    let { binId, newId } = args;
+    newId = resolve('/', newId);
+
+    if (!binId || !newId || false === /^[a-z0-9-]$/.test(newId)) {
+      badRequest(res);
+      return;
+    }
+
+    const oldPath = join(rootDir, binId);
+    const newPath = join(rootDir, newId);
+
+    if (!existsSync(oldPath) || existsSync(newPath)) {
+      badRequest(res);
+      return;
+    }
+
+    await rename(oldPath, newPath);
+    res.setHeader('location', String(new URL('/bin/' + newId, getProxyHost(req))));
+    res.writeHead(202).end(JSON.stringify({ binId: newId }));
   });
 }
 
@@ -243,9 +267,9 @@ async function onUploadZip(req, res, args) {
     await new Promise((resolve, reject) => {
       req.on('end', () => {
         const zipOptions = {
-          strictFileNames:true,
+          strictFileNames: true,
           lazyEntries: true,
-          decodeStrings: true
+          decodeStrings: true,
         };
 
         yauzl.open(tmpFile, zipOptions, (err, zip) => {
@@ -271,7 +295,7 @@ async function onUploadZip(req, res, args) {
                 return reject(err);
               }
 
-              readStream.on("end", () => zip.readEntry());
+              readStream.on('end', () => zip.readEntry());
 
               const fileId = randomUUID();
               const meta = { name: entry.fileName };
@@ -290,7 +314,7 @@ async function onUploadZip(req, res, args) {
     });
 
     res.writeHead(202).end(`{"binId": "${binId}"}`);
-} catch (error) {
+  } catch (error) {
     console.log(error);
     res.writeHead(500).end();
   } finally {
@@ -331,6 +355,10 @@ async function onDownloadZip(_req, res, args) {
 
 function notFound(res) {
   res.writeHead(404).end('Not found');
+}
+
+function badRequest(res) {
+  res.writeHead(400).end('Bad request');
 }
 
 async function tryCatch(res, fn) {
@@ -377,6 +405,7 @@ const match = router({
   'GET /api.json': onApiSpec,
   'GET /index.mjs': onEsModule,
   'POST /bin': onCreateBin,
+  'MOVE /bin/:binId/:newId': onRenameBin,
   'GET /bin/:binId': onReadBin,
   'DELETE /bin/:binId': onDeleteBin,
 
@@ -388,6 +417,8 @@ const match = router({
 
   'GET /meta/:binId/:fileId': onReadMetadata,
   'PUT /meta/:binId/:fileId': onWriteMetadata,
+  'GET /meta/:binId': onReadMetadata,
+  'PUT /meta/:binId': onWriteMetadata,
   'GET /zip/:binId': onDownloadZip,
   'POST /zip/:binId': onUploadZip,
 });

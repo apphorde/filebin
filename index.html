@@ -15,8 +15,15 @@
   </head>
   <body class="h-screen w-full flex flex-col relative">
     <template component="file-row">
-      <tr class="border-b transition-colors hover:bg-gray-100" class-opacity-40="partial" attr-data-bin="file.bin" attr-data-id="file.id">
-        <td class="px-4 py-2 align-middle font-medium"><a bind-href="file.url" attr-download="file.name">{{file.name}}</a></td>
+      <tr
+        class="border-b transition-colors hover:bg-gray-100"
+        class-opacity-40="partial"
+        attr-data-bin="file.bin"
+        attr-data-id="file.id"
+      >
+        <td class="px-4 py-2 align-middle font-medium">
+          <a bind-href="file.url" attr-download="file.name">{{file.name}}</a>
+        </td>
         <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileDate(file.lastModified) }}</td>
         <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileSize(file.size) }}</td>
         <td class="px-4 align-middle text-right">
@@ -159,6 +166,7 @@
           createFile,
           writeFile,
           removeFile,
+          renameBin,
         } from 'https://file.api.apphor.de/index.mjs';
 
         export default function setup() {
@@ -217,11 +225,21 @@
           }
 
           async function storeBinId(binId) {
+            const f = (list) => [...list, binId];
+            return updateBinList(f);
+          }
+
+          async function storeNewBinId(binId, newId) {
+            const f = (list) => list.map((x) => (x === binId ? newId : x));
+            return updateBinList(f);
+          }
+
+          async function updateBinList(f) {
             if (profile.value) {
               try {
                 const list = JSON.parse((await getProperty('binList')) || '[]');
-                list.push(binId);
-                binList.value = [...binList.value, binId];
+                list = f(list);
+                binList.value = list;
                 await setProperty('binList', JSON.stringify(list));
               } catch (error) {
                 console.error(error);
@@ -235,7 +253,7 @@
             const { binId } = await createBin();
             const url = getBinUrl(binId);
 
-            storeBinId(binId);
+            await storeBinId(binId);
 
             if (newTab) {
               window.open(url, '_blank');
@@ -258,6 +276,15 @@
             if (name) {
               await writeMetadata(bin, id, { ...meta, name });
               fileRef.name = name;
+            }
+          }
+
+          async function onRenameBin(binId) {
+            const newId = prompt('New name', binId);
+
+            if (newId) {
+              await renameBin(binId, newId);
+              await storeNewBinId(binId, newId);
             }
           }
 
@@ -300,7 +327,7 @@
 
               writeFile(binId.value, fileId, file).then(async () => {
                 Object.assign(meta, await readMetadata(binId.value, fileId));
-                partialFiles.value = partialFiles.value.filter(x => x !== fileId);
+                partialFiles.value = partialFiles.value.filter((x) => x !== fileId);
               });
             }
           }
@@ -468,11 +495,19 @@
                     <p class="block mb-2">New files will appear here once you start uploading.</p>
                     <button
                       class="inline-flex items-center justify-center rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-blue-500 text-white hover:bg-accent hover:text-accent-foreground h-8 px-3 py-1 border-0"
-                      on-click="filedialog.showModal()">Upload Files</button>
+                      on-click="filedialog.showModal()"
+                    >
+                      Upload Files
+                    </button>
                   </td>
                 </template>
                 <template for="file of sortedFiles">
-                  <file-row bind-partial="partialFiles.includes(file.id)" bind-file="file" on-rename="onRename(file)" on-delete="onDelete(file)"></file-row>
+                  <file-row
+                    bind-partial="partialFiles.includes(file.id)"
+                    bind-file="file"
+                    on-rename="onRename(file)"
+                    on-delete="onDelete(file)"
+                  ></file-row>
                 </template>
               </tbody>
             </table>
@@ -498,7 +533,10 @@
             </template>
 
             <template for="binId of binList">
-              <a class="block py-2 w-full" bind-href="getBinUrl(binId)">{{ binId }}</a>
+              <div class="flex items-center gap-2">
+                <a class="block py-2 w-full" bind-href="getBinUrl(binId)">{{ binId }}</a>
+                <button class="py-2 px-1 flex-1" on-click="onRenameBin(binId)">edit</button>
+              </div>
             </template>
           </div>
         </aside>
