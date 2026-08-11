@@ -1,0 +1,18 @@
+{
+  "name": "File Bin",
+  "short_name": "FileBin",
+  "description": "A quick file bin for uploading, organizing, and sharing files.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#e91e63",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

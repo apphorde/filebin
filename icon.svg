@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">File Bin app icon</title>
+  <desc id="desc">A rounded magenta file bin with a white folder and upload arrow.</desc>
+  <defs>
+    <linearGradient id="background" x1="64" y1="448" x2="448" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#be185d" />
+      <stop offset="1" stop-color="#f472b6" />
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="512" height="512" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#831843" flood-opacity="0.32" />
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#background)" />
+  <g filter="url(#shadow)">
+    <path
+      fill="#ffffff"
+      d="M104 172c0-26.5 21.5-48 48-48h76.9c16.1 0 31.1 8.1 40 21.5l18 27H360c26.5 0 48 21.5 48 48v120c0 26.5-21.5 48-48 48H152c-26.5 0-48-21.5-48-48V172Z"
+    />
+    <path fill="#fce7f3" d="M104 220h304v120c0 26.5-21.5 48-48 48H152c-26.5 0-48-21.5-48-48V220Z" />
+    <path
+      fill="#db2777"
+      d="M256 306.7a18.7 18.7 0 0 1-18.7-18.7v-48.2l-15 15a18.7 18.7 0 0 1-26.4-26.4l46.9-46.9a18.7 18.7 0 0 1 26.4 0l46.9 46.9a18.7 18.7 0 1 1-26.4 26.4l-15-15V288c0 10.3-8.4 18.7-18.7 18.7Z"
+    />
+    <rect x="181" y="326" width="150" height="38" rx="19" fill="#db2777" />
+  </g>
+</svg>
