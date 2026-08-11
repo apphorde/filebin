@@ -35,7 +35,7 @@ async function onReadFile(_req, res, args) {
   }
 
   tryCatch(res, async () => {
-    const meta = await readMeta(metaPath);
+    const meta = await readMetaFile(metaPath);
     const stats = await stat(filePath);
 
     Object.entries(meta).forEach(([key, value]) => res.setHeader(key == 'type' ? 'content-type' : key, String(value)));
@@ -47,33 +47,43 @@ async function onReadFile(_req, res, args) {
   });
 }
 
-async function onReadMetadata(req, res, args) {
-  const { binId = '', fileId = '' } = args;
+async function readMetadata(binId: string, fileId: string, baseUrl: string | URL) {
   const filePath = join(...[rootDir, binId, fileId].filter(Boolean));
-  const metaPath = filePath + '.meta';
 
   if (!(binId && existsSync(filePath))) {
+    return null;
+  }
+
+  try {
+    const metaPath = filePath + '.meta';
+    const meta = await readMetaFile(metaPath);
+    const stats = await stat(filePath);
+
+    return {
+      ...meta,
+      id: fileId || undefined,
+      bin: binId,
+      size: stats.size,
+      name: meta.name || fileId,
+      lastModified: new Date(stats.mtime).toISOString(),
+      url: String(new URL('/' + ['f', binId, fileId].filter(Boolean).join('/'), baseUrl)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function onReadMetadata(req, res, args) {
+  const { binId = '', fileId = '' } = args;
+  const baseUrl = getProxyHost(req);
+  const metadata = await readMetadata(binId, fileId, baseUrl);
+
+  if (!metadata) {
     return notFound(res);
   }
 
-  tryCatch(res, async () => {
-    const meta = await readMeta(metaPath);
-    const stats = await stat(filePath);
-    const baseUrl = getProxyHost(req);
-
-    res.setHeader('content-type', 'application/json');
-    res.end(
-      JSON.stringify({
-        ...meta,
-        id: fileId || undefined,
-        bin: binId,
-        size: stats.size,
-        name: meta.name || fileId,
-        lastModified: new Date(stats.mtime).toISOString(),
-        url: String(new URL('/' + ['f', binId, fileId].filter(Boolean).join('/'), baseUrl)),
-      }),
-    );
-  });
+  res.writeHead(200, jsonHeaders);
+  res.end(JSON.stringify(metadata));
 }
 
 async function onWriteMetadata(req, res, args) {
@@ -262,14 +272,20 @@ async function onEsModule(req, res) {
 
 const indexFile = readFileSync('./index.html', 'utf-8');
 
-function onGetUI(_req, res, args) {
+function onGetUI(req, res, args) {
   tryCatch(res, async () => {
     const { binId } = args;
-    let state: any = !binId
-      ? null
-      : {
-          files: await readBin(binId),
-        };
+    let state: any;
+
+    if (binId) {
+      const baseUrl = getProxyHost(req);
+      const fileIds = await readBin(binId);
+      const files = await Promise.all(fileIds.map((x) => readMetadata(binId, x, baseUrl)));
+
+      state = {
+        files,
+      };
+    }
 
     res
       .writeHead(200, { 'content-type': 'text/html' })
@@ -368,7 +384,7 @@ async function onDownloadZip(_req, res, args) {
     for (const fileId of files) {
       const filePath = join(rootDir, binId, fileId);
       const metaPath = filePath + '.meta';
-      const meta = await readMeta(metaPath);
+      const meta = await readMetaFile(metaPath);
       const buffer = await readFile(filePath);
       const fileName = meta.name || fileId;
       zip.addBuffer(buffer, fileName);
@@ -395,7 +411,7 @@ async function tryCatch(res, fn) {
   }
 }
 
-function getProxyHost(req: IncomingMessage) {
+function getProxyHost(req: IncomingMessage): URL {
   return new URL(
     `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`,
   ).toString();
@@ -415,10 +431,12 @@ function ensureDir(path) {
   return mkdir(path, { recursive: true });
 }
 
-async function readMeta(metaPath: string) {
-  if (existsSync(metaPath)) {
-    return JSON.parse(await readFile(metaPath, 'utf8'));
-  }
+async function readMetaFile(metaPath: string) {
+  try {
+    if (existsSync(metaPath)) {
+      return JSON.parse(await readFile(metaPath, 'utf8'));
+    }
+  } catch {}
 
   return {};
 }
