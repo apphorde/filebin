@@ -174,8 +174,10 @@
 
         export default function setup() {
           const binId = ref(
+              // ?bin=123
             new URL(location.href).searchParams.get('bin') ||
-              location.pathname.replace('/b/', '') ||
+              // /b/:binId
+              /\/b\/(?<binId>.+)/.exec(location.pathname)?.groups?.binId ||
               localStorage.getItem('binId'),
           );
           const binList = ref([]);
