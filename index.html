@@ -147,6 +147,9 @@
     </template>
 
     <template app>
+      <script state>
+        <!-- %state% -->
+      </script>
       <script setup>
         import { ref, computed, templateRef, onInit } from '@li3/web';
         import {
@@ -170,7 +173,11 @@
         } from 'https://file.api.apphor.de/index.mjs';
 
         export default function setup() {
-          const binId = ref(new URL(location.href).searchParams.get('bin') || localStorage.getItem('binId'));
+          const binId = ref(
+            new URL(location.href).searchParams.get('bin') ||
+              location.pathname.replace('/b/', '') ||
+              localStorage.getItem('binId'),
+          );
           const binList = ref([]);
           const files = ref([]);
           const loading = ref(false);
@@ -184,7 +191,7 @@
           const partialFiles = ref([]);
 
           onInit(async () => {
-            updateList();
+            if (!files.value?.length) updateList();
 
             events.addEventListener('state', async (event) => {
               profile.value = event.detail;

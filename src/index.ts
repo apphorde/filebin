@@ -1,7 +1,7 @@
 import type { IncomingMessage } from 'node:http';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { createReadStream, createWriteStream, existsSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { writeFile, readFile, mkdir, readdir, stat, rm, rename, unlink } from 'node:fs/promises';
 import router from 'micro-router';
@@ -10,6 +10,8 @@ import * as yauzl from 'yauzl';
 import { load } from 'js-yaml';
 
 const rootDir = process.env.ROOT_DIR;
+const jsonHeaders = { 'content-type': 'application/json' };
+
 export type Options = { port?: Number };
 
 async function onFileExists(_req, res, args) {
@@ -146,18 +148,28 @@ function onWriteFile(req, res, args) {
   req.pipe(writer);
 }
 
-async function onReadBin(_req, res, args) {
-  const { binId = '' } = args;
+async function readBin(binId: string) {
   const binPath = join(rootDir, binId);
 
   if (!(binId && existsSync(binPath))) {
-    return notFound(res);
+    return null;
   }
 
+  const allFiles = await readdir(binPath);
+  return allFiles.filter((f) => !f.endsWith('.meta'));
+}
+
+async function onReadBin(_req, res, args) {
+  const { binId = '' } = args;
+
   tryCatch(res, async () => {
-    const allFiles = await readdir(binPath);
-    const files = allFiles.filter((f) => !f.endsWith('.meta'));
-    res.end(JSON.stringify(files));
+    const files = await readBin(binId);
+
+    if (files === null) {
+      return notFound(res);
+    }
+
+    res.writeHead(200, jsonHeaders).end(JSON.stringify(files));
   });
 }
 
@@ -173,9 +185,10 @@ function onCreateBin(req, res) {
 function onRenameBin(req, res, args) {
   tryCatch(res, async () => {
     let { binId, newId } = args;
+    const matcher = /^[a-z0-9-]+$/i;
     newId = resolve('/', newId);
 
-    if (!binId || !newId || false === /^[a-z0-9-]$/.test(newId)) {
+    if (!binId || !newId || !matcher.test(newId)) {
       badRequest(res);
       return;
     }
@@ -247,9 +260,21 @@ async function onEsModule(req, res) {
   res.end(file.replace('__API_HOST__', host));
 }
 
-async function onGetUI(_req, res) {
-  res.setHeader('content-type', 'text/html');
-  createReadStream('./index.html').pipe(res);
+const indexFile = readFileSync('./index.html', 'utf-8');
+
+function onGetUI(_req, res, args) {
+  tryCatch(res, async () => {
+    const { binId } = args;
+    let state: any = !binId
+      ? null
+      : {
+          files: await readBin(binId),
+        };
+
+    res
+      .writeHead(200, { 'content-type': 'text/html' })
+      .end(indexFile.replace('<!-- %state% -->', JSON.stringify(state || {})));
+  });
 }
 
 async function onUploadZip(req, res, args) {
@@ -400,6 +425,7 @@ async function readMeta(metaPath: string) {
 
 const match = router({
   'GET /': onGetUI,
+  'GET /b/:binId': onGetUI,
   'GET /api': onApiSpec,
   'GET /api.yaml': onApiSpec,
   'GET /api.json': onApiSpec,
