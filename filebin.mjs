@@ -31,6 +31,10 @@ export async function removeBin(bin) {
  * @returns {Promise<boolean>} OK
  */
 export async function renameBin(bin, newId) {
+  if (!bin || !newId) {
+    return Promise.reject(new Error('Invalid bin id'));
+  }
+
   const req = await fetch(u(`/bin/${bin}/${newId}`), { method: 'MOVE', mode: 'cors' });
 
   return req.ok || Promise.reject(new Error('Failed to rename bin'));
@@ -41,8 +45,11 @@ export async function renameBin(bin, newId) {
  * @returns {Promise<string[]>} file ids
  */
 export async function listFiles(bin) {
-  const req = await fetch(u(`/bin/${bin}`), g);
+  if (!bin) {
+    return Promise.reject(new Error('Invalid bin id'));
+  }
 
+  const req = await fetch(u(`/bin/${bin}`), g);
   return req.ok ? await req.json() : Promise.reject(new Error('Failed to fetch files in this bin'));
 }
 
