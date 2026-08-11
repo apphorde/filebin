@@ -293,6 +293,16 @@ function onGetUI(req, res, args) {
   });
 }
 
+function onGetManifest(_req, res) {
+  res.setHeader('content-type', 'application/manifest+json');
+  createReadStream('./manifest.webmanifest').pipe(res);
+}
+
+function onGetIcon(_req, res) {
+  res.setHeader('content-type', 'image/svg+xml');
+  createReadStream('./icon.svg').pipe(res);
+}
+
 async function onUploadZip(req, res, args) {
   const { binId = '' } = args;
   const binPath = join(rootDir, binId);
@@ -444,6 +454,8 @@ async function readMetaFile(metaPath: string) {
 const match = router({
   'GET /': onGetUI,
   'GET /b/:binId': onGetUI,
+  'GET /manifest.webmanifest': onGetManifest,
+  'GET /icon.svg': onGetIcon,
   'GET /api': onApiSpec,
   'GET /api.yaml': onApiSpec,
   'GET /api.json': onApiSpec,
