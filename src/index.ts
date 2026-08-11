@@ -411,7 +411,7 @@ async function tryCatch(res, fn) {
   }
 }
 
-function getProxyHost(req: IncomingMessage): URL {
+function getProxyHost(req: IncomingMessage): string {
   return new URL(
     `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`,
   ).toString();
