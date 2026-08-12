@@ -248,8 +248,7 @@
           async function updateBinList(f) {
             if (profile.value) {
               try {
-                const list = JSON.parse((await getProperty('binList')) || '[]');
-                list = f(list);
+                const list = f(JSON.parse((await getProperty('binList')) || '[]'));
                 binList.value = list;
                 await setProperty('binList', JSON.stringify(list));
               } catch (error) {
