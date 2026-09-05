@@ -1,10 +1,10 @@
 const API_URL = '__API_HOST__';
 
 const u = (s) => new URL(s, API_URL);
-const h = { method: 'HEAD', mode: 'cors' };
-const g = { method: 'GET', mode: 'cors' };
-const p = { method: 'POST', mode: 'cors' };
-const d = { method: 'DELETE', mode: 'cors' };
+const h = { method: 'HEAD', mode: 'cors', credentials: 'include' };
+const g = { method: 'GET', mode: 'cors', credentials: 'include' };
+const p = { method: 'POST', mode: 'cors', credentials: 'include' };
+const d = { method: 'DELETE', mode: 'cors', credentials: 'include' };
 
 /**
  * @returns {Promise<{ binId: string }>}
@@ -35,7 +35,13 @@ export async function renameBin(bin, newId) {
     return Promise.reject(new Error('Invalid bin id'));
   }
 
-  const req = await fetch(u(`/bin/${bin}/${newId}`), { method: 'MOVE', mode: 'cors' });
+  const req = await fetch(u(`/bin/${bin}`), {
+    method: 'PATCH',
+    mode: 'cors',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ newId }),
+  });
 
   return req.ok || Promise.reject(new Error('Failed to rename bin'));
 }
@@ -87,8 +93,11 @@ export function getZipUrl(bin) {
  * @param {string} bin
  * @returns {Promise<{ fileId: string }>}
  */
-export async function createFile(bin) {
-  const req = await fetch(u(`/f/${bin}`), p);
+export async function createFile(bin, metadata) {
+  const req = await fetch(u(`/f/${bin}`), {
+    ...p,
+    body: metadata ? JSON.stringify(metadata) : undefined,
+  });
 
   return req.ok ? await req.json() : Promise.reject(new Error('Failed to create file'));
 }
@@ -162,6 +171,36 @@ export async function writeMetadata(bin, file, content) {
  * @returns {Promise<Object>}
  */
 export async function readMetadata(bin, file) {
-  const req = await fetch(u(`/meta/${bin}/${file}`), g);
+  const req = await fetch(u('/' + ['meta', bin, file].filter(Boolean).join('/')), g);
   return req.ok ? await req.json() : Promise.reject(new Error('Failed to fetch file metadata'));
+}
+
+export async function getBinLock(bin) {
+  const req = await fetch(u(`/lock/${bin}`), g);
+  return req.ok ? await req.json() : Promise.reject(new Error('Failed to read bin protection status'));
+}
+
+export async function unlockBin(bin, password) {
+  const req = await fetch(u(`/lock/${bin}`), {
+    ...p,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  return req.ok || Promise.reject(new Error('Incorrect password'));
+}
+
+export async function setBinPassword(bin, password) {
+  const req = await fetch(u(`/lock/${bin}`), {
+    method: 'PUT',
+    mode: 'cors',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  return req.ok || Promise.reject(new Error(await req.text() || 'Failed to protect bin'));
+}
+
+export async function removeBinPassword(bin) {
+  const req = await fetch(u(`/lock/${bin}`), d);
+  return req.ok || Promise.reject(new Error('Failed to remove bin protection'));
 }

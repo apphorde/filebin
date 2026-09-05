@@ -1,256 +1,397 @@
 openapi: 3.0.3
 info:
-  title: FileBin v1
-  description: |-
-    A file bin service
+  title: FileBin API
+  description: File storage with virtual folders and optional password-protected bins.
   license:
     name: MIT
-  version: 1.0.0
+  version: 1.1.0
 servers:
   - url: __API_HOST__
 tags:
-  - name: bin
-    description: A file bin
-  - name: file
-    description: A file in a bin
+  - name: bins
+  - name: files
+  - name: protection
 paths:
   /bin:
     post:
-      tags:
-        - bin
+      tags: [bins]
       summary: Create a bin
       operationId: createBin
       responses:
-        '200':
-          description: Successful operation
-        '500':
-          description: An error
-
+        '201':
+          description: Bin created
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BinCreated' }
+        '500': { $ref: '#/components/responses/ServerError' }
   /bin/{binId}:
+    parameters:
+      - $ref: '#/components/parameters/BinId'
     get:
-      tags:
-        - bin
-      summary: List all files in a bin
+      tags: [bins]
+      summary: List file IDs in a bin
       operationId: listFiles
-      parameters:
-        - name: binId
-          in: path
-          required: true
-          schema:
-            type: string
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
       responses:
         '200':
-          description: OK
-        '500':
-          description: Unable to remove this bin
-    delete:
-      tags:
-        - bin
-      summary: Removes a bin and all files
-      operationId: removeBin
-      parameters:
-        - name: binId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: OK
-        '500':
-          description: Unable to remove this bin
-  /bin/{binId}/{newId}:
-    get:
-      tags:
-        - bin
+          description: File IDs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string, format: uuid }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [bins]
       summary: Rename a bin
       operationId: renameBin
-      parameters:
-        - name: binId
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: newId
-          in: path
-          required: true
-          schema:
-            type: string
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newId]
+              properties:
+                newId: { type: string, pattern: '^[a-zA-Z0-9-]+$' }
       responses:
         '202':
-          description: OK
-        '400':
-          description: Bad request or invalid bin name
-        '500':
-          description: Unable to rename this bin
-  /zip/{binId}:
-    get:
-      tags:
-        - bin
-      summary: Download all files in a bin as a single zip
-      operationId: downloadZip
-      parameters:
-        - name: binId
-          in: path
-          required: true
-          schema:
-            type: string
+          description: Bin renamed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BinCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Locked' }
+    delete:
+      tags: [bins]
+      summary: Delete a bin and all of its files
+      operationId: removeBin
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
       responses:
-        '200':
-          description: OK
-        '500':
-          description: Unable to generate a zip for this bin
+        '200': { description: Bin deleted }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /f/{binId}:
+    parameters:
+      - $ref: '#/components/parameters/BinId'
     post:
-      tags:
-        - file
-      summary: Create file
+      tags: [files]
+      summary: Create an empty file
+      description: The optional metadata name may contain slash-separated folder segments.
       operationId: createFile
-      parameters:
-        - name: binId
-          in: path
-          required: true
-          schema:
-            type: string
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MetadataInput' }
       responses:
         '201':
-          description: File created, ready to upload
-        '500':
-          description: Failed to create the file
-  /meta/{binId}:
+          description: File created
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileCreated' }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /f/{binId}/{fileId}:
+    parameters:
+      - $ref: '#/components/parameters/BinId'
+      - $ref: '#/components/parameters/FileId'
+    head:
+      tags: [files]
+      summary: Check whether a file exists
+      operationId: fileExists
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      responses:
+        '200': { description: File exists }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
     get:
-      tags:
-        - bin
+      tags: [files]
+      summary: Download a file
+      operationId: readFile
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      responses:
+        '200':
+          description: File content
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [files]
+      summary: Replace file content
+      operationId: writeFile
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '202':
+          description: File updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileReference' }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [files]
+      summary: Delete a file
+      operationId: removeFile
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      responses:
+        '200': { description: File deleted }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /meta/{binId}:
+    parameters:
+      - $ref: '#/components/parameters/BinId'
+    get:
+      tags: [bins]
       summary: Read bin metadata
-      operationId: readMetadata
-      parameters:
-        - name: binId
-          in: path
-          required: true
-          schema:
-            type: string
+      operationId: readBinMetadata
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
       responses:
         '200':
           description: Bin metadata
-        '404':
-          description: Bin not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Metadata' }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
     put:
-      tags:
-        - file
-      summary: Update bin metadata
-      operationId: writeMetadata
-      parameters:
-        - name: binId
-          in: path
-          required: true
-          schema:
-            type: string
+      tags: [bins]
+      summary: Replace bin metadata
+      operationId: writeBinMetadata
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MetadataInput' }
       responses:
-        '202':
-          description: Bin metadata updated
-        '404':
-          description: Bin not found
+        '202': { description: Metadata updated }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /meta/{binId}/{fileId}:
+    parameters:
+      - $ref: '#/components/parameters/BinId'
+      - $ref: '#/components/parameters/FileId'
     get:
-      tags:
-        - file
+      tags: [files]
       summary: Read file metadata
-      operationId: readMetadata
-      parameters:
-        - name: binId
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: fileId
-          in: path
-          required: true
-          schema:
-            type: string
+      operationId: readFileMetadata
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
       responses:
         '200':
           description: File metadata
-        '404':
-          description: File not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Metadata' }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
     put:
-      tags:
-        - file
-      summary: Update file metadata
-      operationId: writeMetadata
-      parameters:
-        - name: binId
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: fileId
-          in: path
-          required: true
-          schema:
-            type: string
+      tags: [files]
+      summary: Replace file metadata
+      operationId: writeFileMetadata
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MetadataInput' }
+      responses:
+        '202': { description: Metadata updated }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /zip/{binId}:
+    parameters:
+      - $ref: '#/components/parameters/BinId'
+    get:
+      tags: [bins]
+      summary: Download a bin as a ZIP archive
+      operationId: downloadZip
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      responses:
+        '200':
+          description: ZIP archive retaining folder paths from metadata names
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [bins]
+      summary: Import a ZIP archive
+      operationId: uploadZip
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/zip:
+            schema: { type: string, format: binary }
       responses:
         '202':
-          description: File metadata updated
-        '404':
-          description: File not found
-  /f/{binId}/{fileId}:
+          description: Archive imported with entry folder paths retained
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BinCreated' }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /lock/{binId}:
+    parameters:
+      - $ref: '#/components/parameters/BinId'
     get:
-      tags:
-        - file
-      summary: Read file
-      operationId: readFile
-      parameters:
-        - name: binId
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: fileId
-          in: path
-          required: true
-          schema:
-            type: string
+      tags: [protection]
+      summary: Read bin protection status
+      operationId: getBinLock
       responses:
         '200':
-          description: The file content
-        '404':
-          description: File not found
+          description: Protection status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LockStatus' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [protection]
+      summary: Unlock a bin in the browser
+      operationId: unlockBin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Password' }
+      responses:
+        '204':
+          description: Unlocked for 12 hours using an HttpOnly cookie
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
     put:
-      tags:
-        - file
-      summary: Update a file
-      description: ''
-      operationId: writeFile
-      parameters:
-        - name: binId
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: fileId
-          in: path
-          required: true
-          schema:
-            type: string
+      tags: [protection]
+      summary: Enable or change password protection
+      operationId: setBinPassword
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Password' }
       responses:
-        '200':
-          description: OK
+        '204': { description: Protection enabled }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
     delete:
-      tags:
-        - file
-      summary: Remove a file
-      operationId: removeFile
-      parameters:
-        - name: binId
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: fileId
-          in: path
-          required: true
-          schema:
-            type: string
+      tags: [protection]
+      summary: Remove password protection
+      operationId: removeBinPassword
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
       responses:
-        '200':
-          description: OK
+        '204': { description: Protection removed }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: Use any username and the bin password. Suitable for non-browser API clients.
+    unlockCookie:
+      type: apiKey
+      in: cookie
+      name: filebin_unlock_{binId}
+      description: Short-lived cookie issued by the unlock endpoint.
+  parameters:
+    BinId:
+      name: binId
+      in: path
+      required: true
+      schema: { type: string }
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    BinCreated:
+      type: object
+      required: [binId]
+      properties:
+        binId: { type: string }
+    FileCreated:
+      type: object
+      required: [fileId]
+      properties:
+        fileId: { type: string, format: uuid }
+    FileReference:
+      type: object
+      required: [id, bin, url]
+      properties:
+        id: { type: string, format: uuid }
+        bin: { type: string }
+        url: { type: string, format: uri }
+    MetadataInput:
+      type: object
+      additionalProperties: true
+      properties:
+        name:
+          type: string
+          description: File name or slash-separated relative path, such as photos/2026/image.jpg.
+        type: { type: string }
+        lastModified: { oneOf: [{ type: string, format: date-time }, { type: number }] }
+    Metadata:
+      allOf:
+        - $ref: '#/components/schemas/MetadataInput'
+        - type: object
+          required: [bin, size, name, lastModified, url]
+          properties:
+            id: { type: string, format: uuid }
+            bin: { type: string }
+            size: { type: integer, minimum: 0 }
+            name: { type: string }
+            lastModified: { type: string, format: date-time }
+            url: { type: string, format: uri }
+    Password:
+      type: object
+      required: [password]
+      properties:
+        password: { type: string, minLength: 8, format: password }
+    LockStatus:
+      type: object
+      required: [locked, unlocked]
+      properties:
+        locked: { type: boolean }
+        unlocked: { type: boolean }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+  responses:
+    BadRequest:
+      description: Invalid request
+    Locked:
+      description: The bin is locked or the password is incorrect
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Bin or file not found
+    ServerError:
+      description: Internal server error

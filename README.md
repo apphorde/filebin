@@ -22,7 +22,8 @@ See also [the release page](https://github.com/cloud-cli/storage/pkgs/container/
 ```ts
 import start from '@cloud-cli/storage';
 
-start({ rootDir: process.cwd() + '/data', port: 1234 });
+process.env.ROOT_DIR = process.cwd() + '/data';
+start({ port: 1234 });
 ```
 
 ### As an ESM Module
@@ -44,6 +45,26 @@ const content = await readFile(binId, fileId);
 // or directly
 const hello = await (await fetch(url)).text();
 ```
+
+File metadata names may use slash-separated relative paths (for example,
+`photos/2026/image.jpg`). Folder paths are retained when importing or exporting
+ZIP archives. The web UI also supports selecting and uploading a directory.
+
+### Password-protected bins
+
+Protection is opt-in from the bin UI. Locked bins reject all bin, file,
+metadata, and ZIP operations until unlocked. Browser unlocks use an HttpOnly
+cookie valid for 12 hours. API clients can instead use HTTP Basic auth with any
+username and the bin password:
+
+```js
+await fetch(`${server}/bin/${binId}`, {
+  headers: { authorization: `Basic ${btoa(`api:${password}`)}` },
+});
+```
+
+Passwords are stored as salted scrypt hashes. A bin ID remains the management
+capability, so protect a bin immediately after creating it when this matters.
 
 ## Environment variables
 

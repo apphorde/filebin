@@ -1,18 +1,22 @@
 import type { IncomingMessage } from 'node:http';
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { writeFile, readFile, mkdir, readdir, stat, rm, rename, unlink } from 'node:fs/promises';
 import router from 'micro-router';
 import * as yazl from 'yazl';
 import * as yauzl from 'yauzl';
 import { load } from 'js-yaml';
+import { promisify } from 'node:util';
 
 const rootDir = process.env.ROOT_DIR;
 const jsonHeaders = { 'content-type': 'application/json' };
+const lockFileName = '.bin.meta';
+const sessionSecret = randomBytes(32);
+const scrypt = promisify(scryptCallback);
 
-export type Options = { port?: Number };
+export type Options = { port?: number };
 
 async function onFileExists(_req, res, args) {
   const { binId = '', fileId = '' } = args;
@@ -184,9 +188,9 @@ async function onReadBin(_req, res, args) {
 }
 
 function onCreateBin(req, res) {
-  tryCatch(res, () => {
+  tryCatch(res, async () => {
     const binId = randomUUID();
-    ensureDir(join(rootDir, binId));
+    await ensureDir(join(rootDir, binId));
     res.setHeader('location', String(new URL('/bin/' + binId, getProxyHost(req))));
     res.writeHead(201).end(JSON.stringify({ binId }));
   });
@@ -196,8 +200,6 @@ function onRenameBin(req, res, args) {
   tryCatch(res, async () => {
     let { binId, newId } = args;
     const matcher = /^[a-z0-9-]+$/i;
-    newId = resolve('/', newId);
-
     if (!binId || !newId || !matcher.test(newId)) {
       badRequest(res);
       return;
@@ -205,6 +207,7 @@ function onRenameBin(req, res, args) {
 
     const oldPath = join(rootDir, binId);
     const newPath = join(rootDir, newId);
+    const oldMetaPath = oldPath + '.meta';
 
     if (!existsSync(oldPath) || existsSync(newPath)) {
       badRequest(res);
@@ -212,9 +215,22 @@ function onRenameBin(req, res, args) {
     }
 
     await rename(oldPath, newPath);
+
+    if (existsSync(oldMetaPath)) {
+      await rename(oldMetaPath, newPath + '.meta');
+    }
+
+    if (await isBinLocked(newId)) {
+      setUnlockCookie(req, res, newId);
+    }
     res.setHeader('location', String(new URL('/bin/' + newId, getProxyHost(req))));
     res.writeHead(202).end(JSON.stringify({ binId: newId }));
   });
+}
+
+async function onRenameBinPatch(req, res, args) {
+  const { newId = '' } = await readJson(req);
+  return onRenameBin(req, res, { ...args, newId });
 }
 
 async function onDeleteFile(_req, res, args) {
@@ -257,7 +273,10 @@ async function onApiSpec(req, res) {
   let spec = (await readFile('./api.yaml', 'utf-8')).replace('__API_HOST__', host);
 
   if (isJson) {
-    spec = String(load(spec));
+    res.setHeader('content-type', 'application/json');
+    spec = JSON.stringify(load(spec));
+  } else {
+    res.setHeader('content-type', 'application/yaml');
   }
 
   res.end(spec);
@@ -280,10 +299,19 @@ function onGetUI(req, res, args) {
     if (binId) {
       const baseUrl = getProxyHost(req);
       const fileIds = await readBin(binId);
-      const files = await Promise.all(fileIds.map((x) => readMetadata(binId, x, baseUrl)));
+
+      if (fileIds === null) {
+        return notFound(res);
+      }
+
+      const locked = await isBinLocked(binId);
+      const unlocked = !locked || (await isBinAuthorized(req, binId));
+      const files = unlocked ? await Promise.all(fileIds.map((x) => readMetadata(binId, x, baseUrl))) : [];
 
       state = {
         files,
+        locked,
+        unlocked,
       };
     }
 
@@ -304,7 +332,8 @@ function onGetIcon(_req, res) {
 }
 
 async function onUploadZip(req, res, args) {
-  const { binId = '' } = args;
+  let { binId = '' } = args;
+  binId = binId.replace(/\.zip$/, '');
   const binPath = join(rootDir, binId);
 
   if (!(binId && existsSync(binPath))) {
@@ -330,7 +359,10 @@ async function onUploadZip(req, res, args) {
 
           zip.on('error', (err) => reject(err));
 
-          zip.once('end', () => {
+          const writes = [];
+
+          zip.once('end', async () => {
+            await Promise.all(writes);
             zip.close();
             resolve(true);
           });
@@ -346,13 +378,18 @@ async function onUploadZip(req, res, args) {
                 return reject(err);
               }
 
-              readStream.on('end', () => zip.readEntry());
-
               const fileId = randomUUID();
               const meta = { name: entry.fileName };
               const stream = createWriteStream(join(binPath, fileId));
 
               await writeFile(join(binPath, fileId + '.meta'), JSON.stringify(meta));
+              writes.push(
+                new Promise((resolve, reject) => {
+                  stream.on('finish', () => resolve(null));
+                  stream.on('error', reject);
+                }),
+              );
+              readStream.on('end', () => zip.readEntry());
               readStream.pipe(stream);
             });
           });
@@ -369,8 +406,66 @@ async function onUploadZip(req, res, args) {
     console.log(error);
     res.writeHead(500).end();
   } finally {
-    unlink(tmpFile);
+    await unlink(tmpFile).catch(() => {});
   }
+}
+
+async function onLockStatus(req, res, args) {
+  const { binId = '' } = args;
+
+  if (!(binId && existsSync(join(rootDir, binId)))) {
+    return notFound(res);
+  }
+
+  const locked = await isBinLocked(binId);
+  const unlocked = !locked || (await isBinAuthorized(req, binId));
+  res.writeHead(200, jsonHeaders).end(JSON.stringify({ locked, unlocked }));
+}
+
+async function onUnlockBin(req, res, args) {
+  const { binId = '' } = args;
+
+  if (!(binId && existsSync(join(rootDir, binId)))) {
+    return notFound(res);
+  }
+
+  const { password = '' } = await readJson(req);
+
+  if (!(await verifyBinPassword(binId, password))) {
+    return unauthorized(res);
+  }
+
+  setUnlockCookie(req, res, binId);
+  res.writeHead(204).end();
+}
+
+async function onSetBinPassword(req, res, args) {
+  const { binId = '' } = args;
+
+  if (!(binId && existsSync(join(rootDir, binId)))) {
+    return notFound(res);
+  }
+
+  const { password = '' } = await readJson(req);
+
+  if (typeof password !== 'string' || password.length < 8) {
+    return badRequest(res, 'Password must contain at least 8 characters');
+  }
+
+  const salt = randomBytes(16).toString('base64url');
+  const hash = Buffer.from((await scrypt(password, salt, 32)) as Buffer).toString('base64url');
+  await writeFile(getLockPath(binId), JSON.stringify({ lock: { salt, hash } }));
+  setUnlockCookie(req, res, binId);
+  res.writeHead(204).end();
+}
+
+async function onRemoveBinPassword(req, res, args) {
+  const { binId = '' } = args;
+  await unlink(getLockPath(binId)).catch((error) => {
+    if (error.code !== 'ENOENT') throw error;
+  });
+  clearUnlockCookie(req, res, binId);
+  res.writeHead(204).end();
 }
 
 async function onDownloadZip(_req, res, args) {
@@ -408,8 +503,14 @@ function notFound(res) {
   res.writeHead(404).end('Not found');
 }
 
-function badRequest(res) {
-  res.writeHead(400).end('Bad request');
+function badRequest(res, message = 'Bad request') {
+  res.writeHead(400).end(message);
+}
+
+function unauthorized(res) {
+  res.writeHead(401, { ...jsonHeaders, 'www-authenticate': 'Basic realm="FileBin"' }).end(
+    JSON.stringify({ error: 'This bin is locked' }),
+  );
 }
 
 async function tryCatch(res, fn) {
@@ -434,6 +535,108 @@ function readStream(stream): Promise<Buffer> {
     stream.on('end', () => resolve(Buffer.concat(parts) as Buffer));
     stream.on('error', reject);
   });
+}
+
+async function readJson(req) {
+  const payload = (await readStream(req)).toString('utf8').trim();
+  return payload ? JSON.parse(payload) : {};
+}
+
+function getLockPath(binId: string) {
+  return join(rootDir, binId, lockFileName);
+}
+
+async function readBinLock(binId: string) {
+  const metadata = await readMetaFile(getLockPath(binId));
+  return metadata.lock || null;
+}
+
+async function isBinLocked(binId: string) {
+  return Boolean((await readBinLock(binId))?.hash);
+}
+
+async function verifyBinPassword(binId: string, password: string) {
+  const lock = await readBinLock(binId);
+
+  if (!lock?.salt || !lock?.hash || typeof password !== 'string') {
+    return false;
+  }
+
+  const actual = Buffer.from((await scrypt(password, lock.salt, 32)) as Buffer);
+  const expected = Buffer.from(lock.hash, 'base64url');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function getCookieName(binId: string) {
+  return `filebin_unlock_${binId}`;
+}
+
+function createUnlockToken(binId: string) {
+  const expires = Date.now() + 12 * 60 * 60 * 1000;
+  const value = `${binId}.${expires}`;
+  const signature = createHmac('sha256', sessionSecret).update(value).digest('base64url');
+  return `${expires}.${signature}`;
+}
+
+function hasValidUnlockCookie(req, binId: string) {
+  const cookies = Object.fromEntries(
+    String(req.headers.cookie || '')
+      .split(';')
+      .map((part) => part.trim().split('='))
+      .filter(([key, value]) => key && value),
+  );
+  const [expires, signature] = String(cookies[getCookieName(binId)] || '').split('.');
+
+  if (!expires || !signature || Number(expires) < Date.now()) {
+    return false;
+  }
+
+  const expected = createHmac('sha256', sessionSecret).update(`${binId}.${expires}`).digest();
+  const actual = Buffer.from(signature, 'base64url');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+async function isBinAuthorized(req, binId: string) {
+  if (!(await isBinLocked(binId)) || hasValidUnlockCookie(req, binId)) {
+    return true;
+  }
+
+  const authorization = String(req.headers.authorization || '');
+
+  if (authorization.startsWith('Basic ')) {
+    const credentials = Buffer.from(authorization.slice(6), 'base64').toString('utf8');
+    const password = credentials.slice(credentials.indexOf(':') + 1);
+    return verifyBinPassword(binId, password);
+  }
+
+  return false;
+}
+
+function setUnlockCookie(req, res, binId: string) {
+  const secure = getProxyHost(req).startsWith('https:') ? '; Secure' : '';
+  res.setHeader(
+    'set-cookie',
+    `${getCookieName(binId)}=${createUnlockToken(binId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200${secure}`,
+  );
+}
+
+function clearUnlockCookie(req, res, binId: string) {
+  const secure = getProxyHost(req).startsWith('https:') ? '; Secure' : '';
+  res.setHeader('set-cookie', `${getCookieName(binId)}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+}
+
+function protectedBinId(req) {
+  const url = new URL(req.url, 'http://localhost');
+  const parts = url.pathname.split('/').filter(Boolean);
+  const [resource, rawBinId] = parts;
+
+  if (!['bin', 'f', 'meta', 'zip', 'lock'].includes(resource) || !rawBinId) {
+    return null;
+  }
+
+  if (resource === 'bin' && req.method === 'POST') return null;
+  if (resource === 'lock' && ['GET', 'POST'].includes(req.method)) return null;
+  return resource === 'zip' ? rawBinId.replace(/\.zip$/, '') : rawBinId;
 }
 
 function ensureDir(path) {
@@ -462,6 +665,7 @@ const match = router({
   'GET /index.mjs': onEsModule,
   'POST /bin': onCreateBin,
   'MOVE /bin/:binId/:newId': onRenameBin,
+  'PATCH /bin/:binId': onRenameBinPatch,
   'GET /bin/:binId': onReadBin,
   'DELETE /bin/:binId': onDeleteBin,
 
@@ -477,6 +681,10 @@ const match = router({
   'PUT /meta/:binId': onWriteMetadata,
   'GET /zip/:binId': onDownloadZip,
   'POST /zip/:binId': onUploadZip,
+  'GET /lock/:binId': onLockStatus,
+  'POST /lock/:binId': onUnlockBin,
+  'PUT /lock/:binId': onSetBinPassword,
+  'DELETE /lock/:binId': onRemoveBinPassword,
 });
 
 export function start(options: Options = {}) {
@@ -484,7 +692,7 @@ export function start(options: Options = {}) {
     throw new Error('Cannot start without ROOT_DIR in environment.');
   }
 
-  createServer((req, res) => {
+  return createServer((req, res) => {
     const _end = res.end;
 
     res.end = (...args) => {
@@ -492,8 +700,16 @@ export function start(options: Options = {}) {
       return _end.apply(res, args);
     };
 
-    match(req, res);
-  }).listen(Number(options.port || process.env.PORT));
+    tryCatch(res, async () => {
+      const binId = protectedBinId(req);
+
+      if (binId && !(await isBinAuthorized(req, binId))) {
+        return unauthorized(res);
+      }
+
+      match(req, res);
+    });
+  }).listen(Number(options.port ?? process.env.PORT));
 }
 
 export default start;

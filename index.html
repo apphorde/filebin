@@ -24,7 +24,7 @@
         attr-data-id="file.id"
       >
         <td class="px-4 py-2 align-middle font-medium">
-          <a bind-href="file.url" attr-download="file.name">{{file.name}}</a>
+          <a bind-href="file.url" attr-download="file.name">{{ displayName(file.name) }}</a>
         </td>
         <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileDate(file.lastModified) }}</td>
         <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileSize(file.size) }}</td>
@@ -118,6 +118,10 @@
             return new Date(d).toISOString().slice(0, 19).replace('T', ' ');
           }
 
+          function displayName(name) {
+            return String(name).replaceAll('\\', '/').split('/').pop();
+          }
+
           const oneKB = 1024;
           const oneMB = oneKB * 1024;
           const oneGB = oneMB * 1024;
@@ -141,6 +145,7 @@
           return {
             fileSize,
             fileDate,
+            displayName,
             onRename,
             onDelete,
           };
@@ -172,7 +177,11 @@
           writeFile,
           removeFile,
           renameBin,
-        } from 'https://file.api.apphor.de/index.mjs';
+          getBinLock,
+          unlockBin,
+          setBinPassword,
+          removeBinPassword,
+        } from '/index.mjs';
 
         export default function setup() {
           const binId = ref(
@@ -185,17 +194,51 @@
           const binList = ref([]);
           const files = ref([]);
           const loading = ref(false);
-          const sortedFiles = computed(() => Array.from(files.value || []).sort((a, b) => (a.name > b.name ? 1 : -1)));
+          const currentFolder = ref('');
+          const visibleFiles = computed(() => {
+            const prefix = currentFolder.value ? `${currentFolder.value}/` : '';
+            return (files.value || []).filter((file) => {
+              const relativeName = String(file.name || file.id).replaceAll('\\', '/').slice(prefix.length);
+              return String(file.name || file.id).replaceAll('\\', '/').startsWith(prefix) && !relativeName.includes('/');
+            });
+          });
+          const folders = computed(() => {
+            const prefix = currentFolder.value ? `${currentFolder.value}/` : '';
+            const names = (files.value || []).flatMap((file) => {
+              const name = String(file.name || file.id).replaceAll('\\', '/');
+              if (!name.startsWith(prefix)) return [];
+              const [folder, child] = name.slice(prefix.length).split('/');
+              return child && folder ? [folder] : [];
+            });
+            return [...new Set(names)].sort();
+          });
+          const sortedFiles = computed(() =>
+            Array.from(visibleFiles.value).sort((a, b) => (a.name > b.name ? 1 : -1)),
+          );
           const profile = ref(null);
           const dragging = ref(false);
           const creating = ref(false);
+          const locked = ref(false);
+          const protectedBin = ref(false);
+          const lockError = ref('');
           const fileUploadDialog = templateRef('filedialog');
           const fileUploadInput = templateRef('fileupload');
+          const folderUploadInput = templateRef('folderupload');
+          const lockDialog = templateRef('lockdialog');
+          const lockPasswordInput = templateRef('lockpassword');
+          const lockPasswordConfirm = templateRef('lockpasswordconfirm');
+          const unlockPasswordInput = templateRef('unlockpassword');
           const dragOverlay = templateRef('dragoverlay');
           const partialFiles = ref([]);
 
           onInit(async () => {
-            if (!files.value?.length) updateList();
+            if (binId.value) {
+              const status = await getBinLock(binId.value);
+              protectedBin.value = status.locked;
+              locked.value = status.locked && !status.unlocked;
+
+              if (!locked.value && !files.value?.length) updateList();
+            }
 
             events.addEventListener('state', async (event) => {
               profile.value = event.detail;
@@ -212,6 +255,7 @@
           }
 
           function onDragEnter() {
+            if (locked.value) return;
             dragging.value = true;
           }
 
@@ -224,6 +268,7 @@
           }
 
           function onDrop(event) {
+            if (locked.value) return;
             dragging.value = false;
 
             if (event.dataTransfer.items) {
@@ -312,19 +357,74 @@
             fileUploadDialog.value.close();
           }
 
+          function onFolderUpload() {
+            uploadFiles([...folderUploadInput.value.files]);
+            folderUploadInput.value.value = '';
+          }
+
+          function openFolder(folder) {
+            currentFolder.value = [currentFolder.value, folder].filter(Boolean).join('/');
+          }
+
+          function openParentFolder() {
+            currentFolder.value = currentFolder.value.split('/').slice(0, -1).join('/');
+          }
+
+          async function onUnlock() {
+            lockError.value = '';
+
+            try {
+              await unlockBin(binId.value, unlockPasswordInput.value.value);
+              unlockPasswordInput.value.value = '';
+              locked.value = false;
+              protectedBin.value = true;
+              await updateList();
+            } catch (error) {
+              lockError.value = error.message;
+            }
+          }
+
+          async function onSetPassword() {
+            const password = lockPasswordInput.value.value;
+
+            if (password !== lockPasswordConfirm.value.value) {
+              lockError.value = 'Passwords do not match';
+              return;
+            }
+
+            try {
+              await setBinPassword(binId.value, password);
+              protectedBin.value = true;
+              lockError.value = '';
+              lockPasswordInput.value.value = '';
+              lockPasswordConfirm.value.value = '';
+              lockDialog.value.close();
+            } catch (error) {
+              lockError.value = error.message;
+            }
+          }
+
+          async function onRemovePassword() {
+            if (!confirm('Remove password protection from this bin?')) return;
+            await removeBinPassword(binId.value);
+            protectedBin.value = false;
+            lockDialog.value.close();
+          }
+
           /**
            * @param {File[]} files
            */
           async function uploadFiles(filesToUpload) {
             for (const file of filesToUpload) {
-              const { fileId } = await createFile(binId.value);
-              const { name, type, lastModified } = file;
+              const name = file.webkitRelativePath || file.name;
+              const { type, lastModified } = file;
 
               const meta = {
                 name,
                 type,
                 lastModified,
               };
+              const { fileId } = await createFile(binId.value, meta);
 
               files.value = [meta, ...files.value];
               partialFiles.value.push(fileId);
@@ -370,14 +470,25 @@
             dragging,
             creating,
             sortedFiles,
+            folders,
+            currentFolder,
             partialFiles,
             loading,
+            locked,
+            protectedBin,
+            lockError,
             getBinUrl,
             uploadFiles,
             updateList,
             onAddBin,
             onCopyUrl,
             onUpload,
+            onFolderUpload,
+            openFolder,
+            openParentFolder,
+            onUnlock,
+            onSetPassword,
+            onRemovePassword,
             onDragEnter,
             onDragLeave,
             onDrop,
@@ -460,10 +571,27 @@
           </div>
         </div>
 
-        <main class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6" class-hidden="!binId">
+        <main class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6" class-hidden="!binId || locked">
           <div class="flex items-center justify-between">
-            <h1 class="font-semibold text-lg md:text-2xl">Your Files</h1>
+            <div class="flex items-center gap-3 min-w-0">
+              <button
+                class="border rounded h-8 px-3 text-sm"
+                class-hidden="!currentFolder"
+                type="button"
+                on-click="openParentFolder()"
+              >
+                Back
+              </button>
+              <h1 class="font-semibold text-lg md:text-2xl truncate">{{ currentFolder || 'Your Files' }}</h1>
+            </div>
             <div>
+              <button
+                class="inline-flex items-center justify-center rounded text-sm font-medium border border-gray-400 h-8 px-3 py-1"
+                type="button"
+                on-click="folderupload.click()"
+              >
+                Upload Folder
+              </button>
               <button
                 class="inline-flex items-center justify-center rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-blue-500 text-white hover:bg-accent hover:text-accent-foreground h-8 px-3 py-1 border-0"
                 type="button"
@@ -481,6 +609,13 @@
               >
                 Download (zip)
               </a>
+              <button
+                class="inline-flex items-center justify-center rounded text-sm font-medium border border-gray-400 h-8 px-3 py-1"
+                type="button"
+                on-click="lockdialog.showModal()"
+              >
+                {{ protectedBin ? 'Protection' : 'Protect bin' }}
+              </button>
             </div>
           </div>
           <div class="border shadow-sm rounded-md w-full overflow-x-auto">
@@ -501,7 +636,7 @@
                 <template if="loading">
                   <td colspan="4" class="p-8 text-center">Loading your files...</td>
                 </template>
-                <template if="!loading && !sortedFiles?.length">
+                <template if="!loading && !sortedFiles?.length && !folders?.length">
                   <td colspan="4" class="p-8 text-center">
                     <p class="block mb-2">New files will appear here once you start uploading.</p>
                     <button
@@ -511,6 +646,18 @@
                       Upload Files
                     </button>
                   </td>
+                </template>
+                <template for="folder of folders">
+                  <tr class="border-b transition-colors hover:bg-gray-100">
+                    <td class="px-4 py-2 align-middle font-medium" colspan="4">
+                      <button class="flex items-center gap-2 w-full text-left" on-click="openFolder(folder)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"></path>
+                        </svg>
+                        {{ folder }}
+                      </button>
+                    </td>
+                  </tr>
                 </template>
                 <template for="file of sortedFiles">
                   <file-row
@@ -524,6 +671,23 @@
             </table>
           </div>
         </main>
+        <aside class="flex flex-1 items-center justify-center p-6" class-hidden="!binId || !locked">
+          <form class="w-full max-w-sm border rounded-lg p-6 shadow-sm" on-submit.stop.prevent="onUnlock()">
+            <h1 class="text-2xl font-bold mb-2">This bin is locked</h1>
+            <p class="text-sm text-gray-600 mb-5">Enter its password to access any files or folders.</p>
+            <label class="block text-sm font-medium mb-2" for="unlockpassword">Password</label>
+            <input
+              id="unlockpassword"
+              ref="unlockpassword"
+              type="password"
+              autocomplete="current-password"
+              required
+              class="h-10 w-full border border-gray-300 rounded-md px-3 mb-3"
+            />
+            <p class="text-sm text-red-600 mb-3" class-hidden="!lockError">{{ lockError }}</p>
+            <button class="w-full rounded-md bg-blue-500 text-white px-4 py-2" type="submit">Unlock bin</button>
+          </form>
+        </aside>
         <aside class="flex flex-1 items-center justify-center mt-12" class-hidden="binId">
           <div class="p-8 bg-gray-100 rounded-lg">
             <template if="!binList?.length">
@@ -583,6 +747,15 @@
                 type="file"
                 multiple
               />
+              <input
+                id="folderupload"
+                ref="folderupload"
+                type="file"
+                webkitdirectory
+                multiple
+                hidden
+                on-change="onFolderUpload()"
+              />
             </div>
           </div>
           <div class="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2">
@@ -615,6 +788,31 @@
             </svg>
             <span class="sr-only">Close</span>
           </button>
+        </form>
+      </dialog>
+      <dialog ref="lockdialog">
+        <form
+          on-submit.stop.prevent="onSetPassword()"
+          class="fixed bg-white left-[50%] top-[50%] z-50 grid w-[calc(100%-2rem)] max-w-md translate-x-[-50%] translate-y-[-50%] gap-4 border p-6 shadow-lg rounded-lg"
+        >
+          <h2 class="text-lg font-semibold">{{ protectedBin ? 'Bin protection' : 'Protect this bin' }}</h2>
+          <p class="text-sm text-gray-600">All file, folder, metadata, and ZIP access will require this password.</p>
+          <label class="text-sm font-medium" for="lockpassword">{{ protectedBin ? 'New password' : 'Password' }}</label>
+          <input id="lockpassword" ref="lockpassword" type="password" minlength="8" required class="h-10 border rounded-md px-3" />
+          <label class="text-sm font-medium" for="lockpasswordconfirm">Confirm password</label>
+          <input id="lockpasswordconfirm" ref="lockpasswordconfirm" type="password" minlength="8" required class="h-10 border rounded-md px-3" />
+          <p class="text-sm text-red-600" class-hidden="!lockError">{{ lockError }}</p>
+          <div class="flex justify-between gap-2 mt-2">
+            <button class="text-red-600 px-2" type="button" class-hidden="!protectedBin" on-click="onRemovePassword()">
+              Remove protection
+            </button>
+            <div class="flex gap-2 ml-auto">
+              <button class="border rounded-md px-4 py-2" type="button" on-click="lockdialog.close()">Cancel</button>
+              <button class="bg-blue-500 text-white rounded-md px-4 py-2" type="submit">
+                {{ protectedBin ? 'Change password' : 'Enable protection' }}
+              </button>
+            </div>
+          </div>
         </form>
       </dialog>
     </template>
