@@ -268,7 +268,7 @@ async function onDeleteBin(_req, res, args) {
 }
 
 async function onApiSpec(req, res) {
-  const isJson = req.url.endsWith('.json');
+  const isJson = new URL(req.url, 'http://localhost').pathname.endsWith('.json');
   const host = getProxyHost(req);
   let spec = (await readFile('./api.yaml', 'utf-8')).replace('__API_HOST__', host);
 

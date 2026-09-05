@@ -298,7 +298,7 @@ test('invalid and missing resources return contract status codes', async () => {
 });
 
 test('OpenAPI JSON endpoint returns JSON', async () => {
-  const response = await fetch(`${baseUrl}/api.json`);
+  const response = await fetch(`${baseUrl}/api.json?cache-bust=1`);
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /application\/json/);
   assert.equal((await response.json()).openapi, '3.0.3');
