@@ -10,7 +10,8 @@
     <script type="importmap">
       {
         "imports": {
-          "@li3/": "https://at-li3.static.apphor.de/"
+          "@li3/": "https://at-li3.static.apphor.de/",
+          "filebin": "/index.mjs"
         }
       }
     </script>
@@ -181,7 +182,7 @@
           unlockBin,
           setBinPassword,
           removeBinPassword,
-        } from '/index.mjs';
+        } from 'filebin';
 
         export default function setup() {
           const binId = ref(

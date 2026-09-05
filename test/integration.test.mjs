@@ -325,4 +325,8 @@ test('UI, module, manifest, icon, and YAML specification are served', async () =
     assert.equal(response.status, 200, path);
     assert.match(await response.text(), expected);
   }
+
+  const ui = await (await fetch(`${baseUrl}/`)).text();
+  assert.match(ui, /"filebin": "\/index\.mjs"/);
+  assert.doesNotMatch(ui, /from ['"]\//, 'blob-compiled setup modules cannot resolve root-relative imports');
 });
