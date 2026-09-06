@@ -36,65 +36,21 @@
               target="_blank"
               bind-href="file.url"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                class="h-4 w-4"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" x2="12" y1="15" y2="3"></line>
-              </svg>
+              <lucide-icon icon="download" icon-classes="h-4 w-4"></lucide-icon>
               <span class="sr-only">Download</span>
             </a>
             <button
               class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
               on-click="onDelete(file)"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                class="h-4 w-4"
-              >
-                <path d="M3 6h18"></path>
-                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-              </svg>
+              <lucide-icon icon="trash-2" icon-classes="h-4 w-4"></lucide-icon>
               <span class="sr-only">Remove</span>
             </button>
             <button
               class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
               on-click="onRename(file)"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                class="h-4 w-4"
-              >
-                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
-                <path d="m15 5 4 4"></path>
-              </svg>
+              <lucide-icon icon="pencil" icon-classes="h-4 w-4"></lucide-icon>
               <span class="sr-only">Rename</span>
             </button>
           </div>
@@ -522,22 +478,7 @@
 
         <div class="bg-gray-100 flex items-center justify-between border-b px-6 w-full py-4">
           <a class="flex items-center gap-2 font-semibold" href="#" on-click="onHomeClick()"
-            ><svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="h-6 w-6"
-            >
-              <path
-                d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"
-              ></path>
-            </svg>
+            ><lucide-icon icon="folder" icon-classes="h-6 w-6"></lucide-icon>
             <span class="font-bold hidden md:inline whitespace-nowrap">File Bin</span>
           </a>
           <a attr-href="getBinUrl()" class="mx-4 text-xs rounded hidden md:block" on-click.prevent="onCopyUrl()"
@@ -545,19 +486,21 @@
           >
           <div class="flex items-center justify-end gap-2">
             <button
-              class="py-2 px-4 text-sm text-blue-500 inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-500 bg-white"
+              class="py-2 px-4 text-sm text-blue-500 inline-flex items-center rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-500 bg-white"
               on-click="onAddBin(true)"
               bind-disabled="creating"
             >
-              New bin
+              <lucide-icon icon="plus" icon-classes="h-4 w-4"></lucide-icon>
+              <span class="sr-only">New bin</span>
             </button>
             <div>
               <template if="profile">
                 <button
-                  class="py-2 px-4 text-sm border-0 bg-transparent inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none"
+                  class="py-2 px-4 text-sm border-0 bg-transparent inline-flex items-center rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none"
                   on-click="signOut()"
                 >
-                  Hi, {{ profile?.name }}
+                  <lucide-icon icon="user-round" icon-classes="h-4 w-4"></lucide-icon>
+                  <span class="sr-only">Sign out {{ profile?.name }}</span>
                 </button>
               </template>
               <template if="!profile">
@@ -565,7 +508,8 @@
                   class="py-2 px-4 text-sm text-white inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-700 bg-blue-500"
                   on-click="signIn(true)"
                 >
-                  Sign In
+                  <lucide-icon icon="log-in" icon-classes="h-4 w-4"></lucide-icon>
+                  <span class="sr-only">Sign in</span>
                 </button>
               </template>
             </div>
@@ -581,7 +525,8 @@
                 type="button"
                 on-click="openParentFolder()"
               >
-                Back
+                <lucide-icon icon="arrow-left" icon-classes="h-4 w-4"></lucide-icon>
+                <span class="sr-only">Back</span>
               </button>
               <h1 class="font-semibold text-lg md:text-2xl truncate">{{ currentFolder || 'Your Files' }}</h1>
             </div>
@@ -591,7 +536,8 @@
                 type="button"
                 on-click="folderupload.click()"
               >
-                Upload Folder
+                <lucide-icon icon="folder-up" icon-classes="h-4 w-4"></lucide-icon>
+                <span class="sr-only">Upload folder</span>
               </button>
               <button
                 class="inline-flex items-center justify-center rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-blue-500 text-white hover:bg-accent hover:text-accent-foreground h-8 px-3 py-1 border-0"
@@ -602,20 +548,23 @@
                 aria-controls="radix-:upload:"
                 data-state="closed"
               >
-                Upload Files
+                <lucide-icon icon="upload" icon-classes="h-4 w-4"></lucide-icon>
+                <span class="sr-only">Upload files</span>
               </button>
               <a
                 class="inline-flex items-center justify-center rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-blue-500 text-blue-500 hover:bg-accent hover:text-accent-foreground h-8 px-3 py-1"
                 attr-href="'/zip/' + binId"
               >
-                Download (zip)
+                <lucide-icon icon="archive" icon-classes="h-4 w-4"></lucide-icon>
+                <span class="sr-only">Download zip</span>
               </a>
               <button
                 class="inline-flex items-center justify-center rounded text-sm font-medium border border-gray-400 h-8 px-3 py-1"
                 type="button"
                 on-click="lockdialog.showModal()"
               >
-                {{ protectedBin ? 'Protection' : 'Protect bin' }}
+                <lucide-icon icon="shield" icon-classes="h-4 w-4"></lucide-icon>
+                <span class="sr-only">{{ protectedBin ? 'Protection' : 'Protect bin' }}</span>
               </button>
             </div>
           </div>
@@ -644,7 +593,8 @@
                       class="inline-flex items-center justify-center rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-blue-500 text-white hover:bg-accent hover:text-accent-foreground h-8 px-3 py-1 border-0"
                       on-click="filedialog.showModal()"
                     >
-                      Upload Files
+                      <lucide-icon icon="upload" icon-classes="h-4 w-4"></lucide-icon>
+                      <span class="sr-only">Upload files</span>
                     </button>
                   </td>
                 </template>
@@ -652,9 +602,7 @@
                   <tr class="border-b transition-colors hover:bg-gray-100">
                     <td class="px-4 py-2 align-middle font-medium" colspan="4">
                       <button class="flex items-center gap-2 w-full text-left" on-click="openFolder(folder)">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"></path>
-                        </svg>
+                        <lucide-icon icon="folder" icon-classes="h-5 w-5"></lucide-icon>
                         {{ folder }}
                       </button>
                     </td>
@@ -693,7 +641,10 @@
               class="h-10 w-full border border-gray-300 rounded-md px-3 mb-3"
             />
             <p class="text-sm text-red-600 mb-3" class-hidden="!lockError">{{ lockError }}</p>
-            <button class="w-full rounded-md bg-blue-500 text-white px-4 py-2" type="submit">Unlock bin</button>
+            <button class="w-full rounded-md bg-blue-500 text-white px-4 py-2" type="submit">
+              <lucide-icon icon="unlock" icon-classes="h-4 w-4"></lucide-icon>
+              <span class="sr-only">Unlock bin</span>
+            </button>
           </form>
         </aside>
         <aside class="flex flex-1 items-center justify-center mt-12" class-hidden="binId">
@@ -707,7 +658,8 @@
                 class="py-2 px-4 text-white inline-flex rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border-0 bg-blue-500"
                 on-click="onAddBin()"
               >
-                Create file bin
+                <lucide-icon icon="plus" icon-classes="h-4 w-4"></lucide-icon>
+                <span class="sr-only">Create file bin</span>
               </button>
             </template>
 
@@ -718,7 +670,10 @@
             <template for="binId of binList">
               <div class="flex items-center gap-2">
                 <a class="block py-2 w-full" bind-href="getBinUrl(binId)">{{ binId }}</a>
-                <button class="py-2 px-1 flex-1" on-click="onRenameBin(binId)">edit</button>
+                <button class="py-2 px-1 flex-1" on-click="onRenameBin(binId)">
+                  <lucide-icon icon="pencil" icon-classes="h-4 w-4"></lucide-icon>
+                  <span class="sr-only">Edit {{ binId }}</span>
+                </button>
               </div>
             </template>
           </div>
@@ -771,7 +726,8 @@
               class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-blue-500 text-white px-4 py-2"
               type="submit"
             >
-              Upload
+              <lucide-icon icon="upload" icon-classes="h-4 w-4"></lucide-icon>
+              <span class="sr-only">Upload</span>
             </button>
           </div>
           <button
@@ -779,21 +735,7 @@
             on-click="filedialog.close()"
             class="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="h-4 w-4"
-            >
-              <path d="M18 6 6 18"></path>
-              <path d="m6 6 12 12"></path>
-            </svg>
+            <lucide-icon icon="x" icon-classes="h-4 w-4"></lucide-icon>
             <span class="sr-only">Close</span>
           </button>
         </form>
@@ -812,12 +754,17 @@
           <p class="text-sm text-red-600" class-hidden="!lockError">{{ lockError }}</p>
           <div class="flex justify-between gap-2 mt-2">
             <button class="text-red-600 px-2" type="button" class-hidden="!protectedBin" on-click="onRemovePassword()">
-              Remove protection
+              <lucide-icon icon="shield-off" icon-classes="h-4 w-4"></lucide-icon>
+              <span class="sr-only">Remove protection</span>
             </button>
             <div class="flex gap-2 ml-auto">
-              <button class="border rounded-md px-4 py-2" type="button" on-click="lockdialog.close()">Cancel</button>
+              <button class="border rounded-md px-4 py-2" type="button" on-click="lockdialog.close()">
+                <lucide-icon icon="x" icon-classes="h-4 w-4"></lucide-icon>
+                <span class="sr-only">Cancel</span>
+              </button>
               <button class="bg-blue-500 text-white rounded-md px-4 py-2" type="submit">
-                {{ protectedBin ? 'Change password' : 'Enable protection' }}
+                <lucide-icon icon="shield-check" icon-classes="h-4 w-4"></lucide-icon>
+                <span class="sr-only">{{ protectedBin ? 'Change password' : 'Enable protection' }}</span>
               </button>
             </div>
           </div>
@@ -826,6 +773,7 @@
     </template>
     <script type="module">
       import '@li3/web';
+      import 'https://sodium.static.apphor.de/lucide-icon.html';
     </script>
     <script defer async src="https://cdn.tailwindcss.com"></script>
   </body>
