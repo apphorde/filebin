@@ -40,7 +40,7 @@ async function save(content) {
   return await writeFile(binId, fileId, content);
 }
 
-const { binId, fileID, url } = await save('hello');
+const { bin: binId, id: fileId, url } = await save('hello');
 const content = await readFile(binId, fileId);
 // or directly
 const hello = await (await fetch(url)).text();
@@ -49,6 +49,17 @@ const hello = await (await fetch(url)).text();
 File metadata names may use slash-separated relative paths (for example,
 `photos/2026/image.jpg`). Folder paths are retained when importing or exporting
 ZIP archives. The web UI also supports selecting and uploading a directory.
+
+### Large, resumable uploads
+
+`createFile()` returns an incomplete upload session. For ordinary uploads, use
+`writeFile()` as above. API clients can upload non-overlapping byte ranges in
+parallel with `writeFilePart(binId, fileId, part, start, total)`. Each part is
+verified with SHA-256 and is durably recorded; use `readUploadStatus()` to list
+received ranges after an interruption, then submit only the missing ranges.
+The file is not available for download or listing until all bytes from `0` to
+`total - 1` have been received. See `api.yaml` for the `Content-Range` and
+`Digest` request header contract.
 
 ### Password-protected bins
 

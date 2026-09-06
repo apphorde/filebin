@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import { createServer } from 'node:http';
-import { createHmac, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeFile, readFile, mkdir, readdir, stat, rm, rename, unlink } from 'node:fs/promises';
@@ -15,6 +15,69 @@ const jsonHeaders = { 'content-type': 'application/json' };
 const lockFileName = '.bin.meta';
 const sessionSecret = randomBytes(32);
 const scrypt = promisify(scryptCallback);
+const uploadLocks = new Map<string, Promise<void>>();
+
+type ByteRange = { start: number; end: number };
+type UploadPart = ByteRange & { digest: string };
+type UploadState = { total: number | null; ranges: ByteRange[]; pending: ByteRange[]; parts: UploadPart[] };
+
+function getUploadDataPath(binId: string, fileId: string) {
+  return join(rootDir, binId, `.upload-${fileId}`);
+}
+
+function getUploadStatePath(binId: string, fileId: string) {
+  return getUploadDataPath(binId, fileId) + '.json';
+}
+
+async function withUploadLock<T>(path: string, fn: () => Promise<T>) {
+  const previous = uploadLocks.get(path) || Promise.resolve();
+  let release: () => void;
+  const current = new Promise<void>((resolve) => (release = resolve));
+  const queued = previous.then(() => current);
+  uploadLocks.set(path, queued);
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    release!();
+    if (uploadLocks.get(path) === queued) uploadLocks.delete(path);
+  }
+}
+
+function parseContentRange(value: string | undefined) {
+  const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(value || '');
+  if (!match) return null;
+  const [, start, end, total] = match;
+  const range = { start: Number(start), end: Number(end), total: Number(total) };
+  return Number.isSafeInteger(range.start) && Number.isSafeInteger(range.end) && Number.isSafeInteger(range.total) &&
+    range.start <= range.end && range.end < range.total ? range : null;
+}
+
+function mergeRanges(ranges: ByteRange[]) {
+  return [...ranges].sort((a, b) => a.start - b.start).reduce<ByteRange[]>((merged, range) => {
+    const last = merged.at(-1);
+    if (last && range.start <= last.end + 1) last.end = Math.max(last.end, range.end);
+    else merged.push({ ...range });
+    return merged;
+  }, []);
+}
+
+function rangesOverlap(ranges: ByteRange[], range: ByteRange) {
+  return ranges.some((item) => item.start <= range.end && range.start <= item.end);
+}
+
+function isUploadComplete(state: UploadState) {
+  return state.total !== null && state.ranges.length === 1 && state.ranges[0].start === 0 && state.ranges[0].end === state.total - 1;
+}
+
+async function readUploadState(binId: string, fileId: string): Promise<UploadState | null> {
+  const path = getUploadStatePath(binId, fileId);
+  return existsSync(path) ? JSON.parse(await readFile(path, 'utf8')) : null;
+}
+
+async function writeUploadState(binId: string, fileId: string, state: UploadState) {
+  await writeFile(getUploadStatePath(binId, fileId), JSON.stringify(state));
+}
 
 export type Options = { port?: number };
 
@@ -49,6 +112,13 @@ async function onReadFile(_req, res, args) {
 
     createReadStream(filePath).pipe(res);
   });
+}
+
+async function onReadUpload(_req, res, args) {
+  const { binId = '', fileId = '' } = args;
+  const state = await readUploadState(binId, fileId);
+  if (!state) return notFound(res);
+  res.writeHead(200, jsonHeaders).end(JSON.stringify({ total: state.total, ranges: state.ranges, complete: false }));
 }
 
 async function readMetadata(binId: string, fileId: string, baseUrl: string | URL) {
@@ -131,35 +201,131 @@ async function onCreateFile(req, res, args) {
       await writeFile(join(binPath, fileId + '.meta'), JSON.stringify(JSON.parse(meta)));
     }
 
-    await writeFile(join(binPath, fileId), '');
+    await writeFile(getUploadDataPath(binId, fileId), '');
+    await writeUploadState(binId, fileId, { total: null, ranges: [], pending: [], parts: [] });
 
     res.setHeader('location', String(new URL(`/f/${binId}/${fileId}`, getProxyHost(req))));
     res.writeHead(201).end(`{"fileId": "${fileId}"}`);
   });
 }
 
-function onWriteFile(req, res, args) {
+async function onWriteFile(req, res, args) {
   const { binId = '', fileId = '' } = args;
   const filePath = join(rootDir, binId, fileId);
+  const uploadPath = getUploadDataPath(binId, fileId);
+  const statePath = getUploadStatePath(binId, fileId);
 
-  if (!(binId && fileId && existsSync(filePath))) {
+  if (!(binId && fileId && (existsSync(filePath) || existsSync(statePath)))) {
     return notFound(res);
   }
 
-  const writer = createWriteStream(filePath);
+  const contentRange = parseContentRange(req.headers['content-range']);
+  if (req.headers['content-range'] && !contentRange) return badRequest(res, 'Invalid Content-Range header');
 
-  writer.on('close', () => {
-    res.writeHead(202);
-    res.end(
-      JSON.stringify({
-        id: fileId,
-        bin: binId,
-        url: String(new URL(`/f/${binId}/${fileId}`, getProxyHost(req))),
-      }),
-    );
+  if (!contentRange) {
+    const temporaryPath = `${uploadPath}.replace-${randomUUID()}`;
+    const writer = createWriteStream(temporaryPath);
+    req.pipe(writer);
+    writer.on('error', () => {
+      rm(temporaryPath, { force: true }).catch(() => {});
+      if (!res.headersSent) res.writeHead(500).end('Failed to write file');
+    });
+    writer.on('close', async () => {
+      try {
+        await rename(temporaryPath, filePath);
+        await Promise.all([rm(uploadPath, { force: true }), rm(statePath, { force: true })]);
+        sendFileReference(req, res, binId, fileId);
+      } catch {
+        if (!res.headersSent) res.writeHead(500).end('Failed to write file');
+      }
+    });
+    return;
+  }
+
+  const digest = String(req.headers.digest || '');
+  if (!/^sha-256=[A-Za-z0-9+/]+={0,2}$/.test(digest)) return badRequest(res, 'A SHA-256 Digest header is required');
+  const range: ByteRange = { start: contentRange.start, end: contentRange.end };
+  let state: UploadState | null = null;
+  let duplicate = false;
+  await withUploadLock(statePath, async () => {
+    state = await readUploadState(binId, fileId);
+    if (!state || (state.total !== null && state.total !== contentRange.total)) {
+      state = null;
+      return;
+    }
+    duplicate = state.parts.some((part) => part.start === range.start && part.end === range.end && part.digest === digest);
+    if (rangesOverlap([...state.ranges, ...state.pending], range) && !duplicate) {
+      state = null;
+      return;
+    }
+    if (duplicate) return;
+    state.total = contentRange.total;
+    state.pending.push(range);
+    await writeUploadState(binId, fileId, state);
+  });
+  if (!state) return res.writeHead(409).end('Conflicting upload range or total size');
+  if (duplicate) {
+    req.resume();
+    req.on('end', () => res.writeHead(202, jsonHeaders).end(JSON.stringify({ complete: false })));
+    return;
+  }
+
+  const hash = createHash('sha256');
+  let written = 0;
+  const writer = createWriteStream(uploadPath, { flags: 'r+', start: range.start });
+  req.on('data', (chunk) => {
+    written += chunk.length;
+    hash.update(chunk);
+  });
+  req.pipe(writer);
+
+  const discardRange = async () => withUploadLock(statePath, async () => {
+    const current = await readUploadState(binId, fileId);
+    if (!current) return;
+    current.pending = current.pending.filter((item) => item.start !== range.start || item.end !== range.end);
+    await writeUploadState(binId, fileId, current);
   });
 
-  req.pipe(writer);
+  writer.on('error', async () => {
+    await discardRange();
+    if (!res.headersSent) res.writeHead(500).end('Failed to write upload part');
+  });
+  writer.on('close', async () => {
+    if (written !== range.end - range.start + 1 || `sha-256=${hash.digest('base64')}` !== digest) {
+      await discardRange();
+      return badRequest(res, 'Upload part does not match its range or digest');
+    }
+
+    try {
+      let complete = false;
+      await withUploadLock(statePath, async () => {
+        const current = await readUploadState(binId, fileId);
+        if (!current) throw new Error('Upload session disappeared');
+        current.pending = current.pending.filter((item) => item.start !== range.start || item.end !== range.end);
+        current.ranges = mergeRanges([...current.ranges, range]);
+        current.parts.push({ ...range, digest });
+        complete = isUploadComplete(current);
+        if (complete) {
+          await rename(uploadPath, filePath);
+          await rm(statePath, { force: true });
+        } else {
+          await writeUploadState(binId, fileId, current);
+        }
+      });
+      if (complete) sendFileReference(req, res, binId, fileId);
+      else res.writeHead(202, jsonHeaders).end(JSON.stringify({ complete: false }));
+    } catch {
+      if (!res.headersSent) res.writeHead(500).end('Failed to finalize upload');
+    }
+  });
+}
+
+function sendFileReference(req, res, binId: string, fileId: string) {
+  res.writeHead(202, jsonHeaders).end(JSON.stringify({
+    id: fileId,
+    bin: binId,
+    url: String(new URL(`/f/${binId}/${fileId}`, getProxyHost(req))),
+  }));
 }
 
 async function readBin(binId: string) {
@@ -170,7 +336,7 @@ async function readBin(binId: string) {
   }
 
   const allFiles = await readdir(binPath);
-  return allFiles.filter((f) => !f.endsWith('.meta'));
+  return allFiles.filter((f) => !f.endsWith('.meta') && !f.startsWith('.upload-'));
 }
 
 async function onReadBin(_req, res, args) {
@@ -238,16 +404,19 @@ async function onDeleteFile(_req, res, args) {
   const filePath = join(rootDir, binId, fileId);
   const metaPath = join(rootDir, binId, fileId + '.meta');
 
-  if (!(binId && fileId && existsSync(filePath))) {
+  const uploadPath = getUploadDataPath(binId, fileId);
+  const uploadStatePath = getUploadStatePath(binId, fileId);
+  if (!(binId && fileId && (existsSync(filePath) || existsSync(uploadStatePath)))) {
     return notFound(res);
   }
 
   tryCatch(res, async () => {
-    await unlink(filePath);
+    await rm(filePath, { force: true });
 
     if (existsSync(metaPath)) {
       await unlink(metaPath);
     }
+    await Promise.all([rm(uploadPath, { force: true }), rm(uploadStatePath, { force: true })]);
 
     res.end('OK');
   });
@@ -480,7 +649,7 @@ async function onDownloadZip(_req, res, args) {
   tryCatch(res, async () => {
     const zip = new yazl.ZipFile();
     const allFiles = await readdir(binPath);
-    const files = allFiles.filter((f) => !f.endsWith('.meta'));
+    const files = allFiles.filter((f) => !f.endsWith('.meta') && !f.startsWith('.upload-'));
 
     res.setHeader('content-type', 'application/x-zip');
     res.setHeader('Content-Disposition', `attachment; filename="archive-${binId.slice(0, 8)}.zip"`);
@@ -671,6 +840,7 @@ const match = router({
 
   'POST /f/:binId': onCreateFile,
   'HEAD /f/:binId/:fileId': onFileExists,
+  'GET /f/:binId/:fileId/upload': onReadUpload,
   'GET /f/:binId/:fileId': onReadFile,
   'PUT /f/:binId/:fileId': onWriteFile,
   'DELETE /f/:binId/:fileId': onDeleteFile,

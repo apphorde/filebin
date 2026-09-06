@@ -4,7 +4,7 @@ info:
   description: File storage with virtual folders and optional password-protected bins.
   license:
     name: MIT
-  version: 1.1.0
+  version: 1.2.0
 servers:
   - url: __API_HOST__
 tags:
@@ -129,9 +129,13 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
     put:
       tags: [files]
-      summary: Replace file content
+      summary: Replace file content or write an upload part
+      description: Without Content-Range this atomically replaces the file. With Content-Range, send a non-overlapping part of an incomplete upload. Parts may be sent in parallel and require a SHA-256 Digest header.
       operationId: writeFile
       security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ContentRange'
+        - $ref: '#/components/parameters/Digest'
       requestBody:
         required: true
         content:
@@ -139,12 +143,17 @@ paths:
             schema: { type: string, format: binary }
       responses:
         '202':
-          description: File updated
+          description: File updated or upload part accepted
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/FileReference' }
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/FileReference'
+                  - $ref: '#/components/schemas/UploadPending'
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Locked' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: The range overlaps a received or in-progress part, or has a conflicting total size. }
     delete:
       tags: [files]
       summary: Delete a file
@@ -152,6 +161,24 @@ paths:
       security: [{ basicAuth: [] }, { unlockCookie: [] }]
       responses:
         '200': { description: File deleted }
+        '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /f/{binId}/{fileId}/upload:
+    parameters:
+      - $ref: '#/components/parameters/BinId'
+      - $ref: '#/components/parameters/FileId'
+    get:
+      tags: [files]
+      summary: Read incomplete upload status
+      description: Returns durable received ranges for an incomplete upload. A completed file returns 404.
+      operationId: readUploadStatus
+      security: [{ basicAuth: [] }, { unlockCookie: [] }]
+      responses:
+        '200':
+          description: Incomplete upload status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadStatus' }
         '401': { $ref: '#/components/responses/Locked' }
         '404': { $ref: '#/components/responses/NotFound' }
   /meta/{binId}:
@@ -328,6 +355,18 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    ContentRange:
+      name: Content-Range
+      in: header
+      required: false
+      description: For an upload part, `bytes start-end/total`. The body must contain exactly the inclusive range length.
+      schema: { type: string, example: bytes 0-8388607/16777216 }
+    Digest:
+      name: Digest
+      in: header
+      required: false
+      description: Required with Content-Range. SHA-256 digest of the request body, encoded as `sha-256=<base64>`.
+      schema: { type: string, example: sha-256=ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0= }
   schemas:
     BinCreated:
       type: object
@@ -346,6 +385,26 @@ components:
         id: { type: string, format: uuid }
         bin: { type: string }
         url: { type: string, format: uri }
+    UploadPending:
+      type: object
+      required: [complete]
+      properties:
+        complete: { type: boolean, enum: [false] }
+    ByteRange:
+      type: object
+      required: [start, end]
+      properties:
+        start: { type: integer, minimum: 0 }
+        end: { type: integer, minimum: 0 }
+    UploadStatus:
+      type: object
+      required: [total, ranges, complete]
+      properties:
+        total: { type: integer, nullable: true, minimum: 1 }
+        ranges:
+          type: array
+          items: { $ref: '#/components/schemas/ByteRange' }
+        complete: { type: boolean, enum: [false] }
     MetadataInput:
       type: object
       additionalProperties: true

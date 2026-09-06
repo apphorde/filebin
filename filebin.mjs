@@ -6,6 +6,14 @@ const g = { method: 'GET', mode: 'cors', credentials: 'include' };
 const p = { method: 'POST', mode: 'cors', credentials: 'include' };
 const d = { method: 'DELETE', mode: 'cors', credentials: 'include' };
 
+function base64(bytes) {
+  let value = '';
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    value += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(value);
+}
+
 /**
  * @returns {Promise<{ binId: string }>}
  */
@@ -145,9 +153,53 @@ export async function writeFile(bin, file, content) {
   const req = await fetch(u(`/f/${bin}/${file}`), {
     method: 'PUT',
     mode: 'cors',
+    credentials: 'include',
     body: content,
   });
   return req.ok ? await req.json() : Promise.reject(new Error('Failed to update file'));
+}
+
+/**
+ * Writes one non-overlapping part of an upload. Parts may be sent in parallel.
+ * @param {string} bin
+ * @param {string} file
+ * @param {Blob | ArrayBuffer | ArrayBufferView | string} content
+ * @param {number} start Byte offset of this part
+ * @param {number} total Total file size in bytes
+ * @returns {Promise<{ complete: false } | { id: string, bin: string, url: string }>}
+ */
+export async function writeFilePart(bin, file, content, start, total) {
+  const bytes = typeof content === 'string'
+    ? new TextEncoder().encode(content)
+    : content instanceof Blob
+      ? new Uint8Array(await content.arrayBuffer())
+      : ArrayBuffer.isView(content)
+        ? new Uint8Array(content.buffer, content.byteOffset, content.byteLength)
+        : new Uint8Array(content);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const digestValue = base64(new Uint8Array(digest));
+  const end = start + bytes.byteLength - 1;
+  const req = await fetch(u(`/f/${bin}/${file}`), {
+    method: 'PUT',
+    mode: 'cors',
+    credentials: 'include',
+    headers: {
+      'content-range': `bytes ${start}-${end}/${total}`,
+      digest: `sha-256=${digestValue}`,
+    },
+    body: bytes,
+  });
+  return req.ok ? await req.json() : Promise.reject(new Error('Failed to write file part'));
+}
+
+/**
+ * @param {string} bin
+ * @param {string} file
+ * @returns {Promise<{ total: number | null, ranges: Array<{ start: number, end: number }>, complete: false }>}
+ */
+export async function readUploadStatus(bin, file) {
+  const req = await fetch(u(`/f/${bin}/${file}/upload`), g);
+  return req.ok ? await req.json() : Promise.reject(new Error('Failed to retrieve upload status'));
 }
 
 /**

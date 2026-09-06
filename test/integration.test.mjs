@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,6 +29,18 @@ async function createFile(binId, metadata = {}) {
   });
   assert.equal(response.status, 201);
   return (await response.json()).fileId;
+}
+
+async function writeFilePart(binId, fileId, body, start, total) {
+  const bytes = Buffer.from(body);
+  return fetch(`${baseUrl}/f/${binId}/${fileId}`, {
+    method: 'PUT',
+    headers: {
+      'content-range': `bytes ${start}-${start + bytes.length - 1}/${total}`,
+      digest: `sha-256=${createHash('sha256').update(bytes).digest('base64')}`,
+    },
+    body: bytes,
+  });
 }
 
 async function createZip(entries) {
@@ -161,6 +174,61 @@ test('bin and file lifecycle preserves metadata across rename', async () => {
   assert.equal((await fetch(`${baseUrl}/f/${renamedId}/${fileId}`, { method: 'HEAD' })).status, 404);
   assert.equal((await fetch(`${baseUrl}/bin/${renamedId}`, { method: 'DELETE' })).status, 200);
   assert.equal((await fetch(`${baseUrl}/bin/${renamedId}`)).status, 404);
+});
+
+test('parallel file parts can be resumed and publish atomically', async () => {
+  const binId = await createBin();
+  const fileId = await createFile(binId, { name: 'video.mp4' });
+  const content = 'abcdefghijklmno';
+
+  assert.equal((await fetch(`${baseUrl}/f/${binId}/${fileId}`)).status, 404);
+  assert.deepEqual(await (await fetch(`${baseUrl}/bin/${binId}`)).json(), []);
+
+  let response = await writeFilePart(binId, fileId, content.slice(5, 10), 5, content.length);
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), { complete: false });
+
+  response = await fetch(`${baseUrl}/f/${binId}/${fileId}/upload`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    total: content.length,
+    ranges: [{ start: 5, end: 9 }],
+    complete: false,
+  });
+
+  response = await writeFilePart(binId, fileId, content.slice(5, 10), 5, content.length);
+  assert.equal(response.status, 202, 'an exact completed part retry is idempotent');
+
+  response = await writeFilePart(binId, fileId, 'def', 3, content.length);
+  assert.equal(response.status, 409, 'overlapping parts are rejected');
+  response = await writeFilePart(binId, fileId, content.slice(0, 5), 0, content.length + 1);
+  assert.equal(response.status, 409, 'conflicting totals are rejected');
+
+  const responses = await Promise.all([
+    writeFilePart(binId, fileId, content.slice(0, 5), 0, content.length),
+    writeFilePart(binId, fileId, content.slice(10), 10, content.length),
+  ]);
+  assert.deepEqual(responses.map(({ status }) => status).sort(), [202, 202]);
+  const results = await Promise.all(responses.map((part) => part.json()));
+  assert.ok(results.some((result) => result.url === `${baseUrl}/f/${binId}/${fileId}`));
+  assert.equal(await (await fetch(`${baseUrl}/f/${binId}/${fileId}`)).text(), content);
+  assert.equal((await fetch(`${baseUrl}/f/${binId}/${fileId}/upload`)).status, 404);
+});
+
+test('file parts require a matching SHA-256 digest', async () => {
+  const binId = await createBin();
+  const fileId = await createFile(binId);
+  const response = await fetch(`${baseUrl}/f/${binId}/${fileId}`, {
+    method: 'PUT',
+    headers: { 'content-range': 'bytes 0-2/3', digest: 'sha-256=invalid' },
+    body: 'abc',
+  });
+  assert.equal(response.status, 400);
+  assert.deepEqual(await (await fetch(`${baseUrl}/f/${binId}/${fileId}/upload`)).json(), {
+    total: 3,
+    ranges: [],
+    complete: false,
+  });
 });
 
 test('legacy MOVE rename remains supported', async () => {
