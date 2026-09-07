@@ -437,5 +437,11 @@ test('help page documents the command-line client', async () => {
   const page = await response.text();
   assert.match(page, /File Bin guide/);
   assert.match(page, /fbin file upload/);
+  assert.match(page, /fbin file upload "\$binId" \.\/video\.mp4 --name/);
+  assert.match(page, /Install the CLI before running these commands/);
   assert.match(page, /aria-label="Help"/);
+
+  const landingPage = await (await fetch(`${baseUrl}/`)).text();
+  assert.match(landingPage, /class-hidden="binId && !isHelp"/);
+  assert.match(landingPage, /Recent file bins/);
 });
