@@ -142,13 +142,14 @@
         } from 'filebin';
 
         export default function setup() {
-          const binId = ref(
+          const isHelp = location.pathname === '/help';
+          const binId = ref(isHelp ? '' : (
               // ?bin=123
             new URL(location.href).searchParams.get('bin') ||
               // /b/:binId
               /\/b\/(?<binId>.+)/.exec(location.pathname)?.groups?.binId ||
               localStorage.getItem('binId'),
-          );
+          ));
           const binList = ref([]);
           const files = ref([]);
           const loading = ref(false);
@@ -457,6 +458,7 @@
             signIn,
             signOut,
             profile,
+            isHelp,
           };
         }
       </script>
@@ -486,6 +488,14 @@
             >{{ binId || '' }}</a
           >
           <div class="flex items-center justify-end gap-2">
+            <a
+              class="inline-flex items-center justify-center h-9 w-9 rounded-md text-gray-700 hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              href="/help"
+              aria-label="Help"
+              title="Help"
+            >
+              <lucide-icon icon="circle-help" icon-classes="h-4 w-4"></lucide-icon>
+            </a>
             <button
               class="py-2 px-4 text-sm text-white inline-flex items-center gap-2 rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700"
               on-click="onAddBin(true)"
@@ -517,7 +527,7 @@
           </div>
         </div>
 
-        <main class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6" class-hidden="!binId || locked">
+        <main class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6" class-hidden="isHelp || !binId || locked">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3 min-w-0">
               <button
@@ -621,7 +631,7 @@
             </table>
           </div>
         </main>
-        <aside class="flex flex-1 items-center justify-center p-6" class-hidden="!binId || !locked">
+        <aside class="flex flex-1 items-center justify-center p-6" class-hidden="isHelp || !binId || !locked">
           <form class="w-full max-w-sm border rounded-lg p-6 shadow-sm" on-submit.stop.prevent="onUnlock()">
             <h1 class="text-2xl font-bold mb-2">This bin is locked</h1>
             <p class="text-sm text-gray-600 mb-5">Enter its password to access any files or folders.</p>
@@ -648,7 +658,65 @@
             </button>
           </form>
         </aside>
-        <aside class="flex flex-1 items-center justify-center mt-12" class-hidden="binId">
+        <main class="mx-auto w-full max-w-4xl px-4 py-10 md:px-6 md:py-16" class-hidden="!isHelp">
+          <div class="mb-12 max-w-2xl">
+            <p class="mb-3 text-sm font-semibold uppercase tracking-widest text-blue-700">File Bin guide</p>
+            <h1 class="mb-4 text-4xl font-bold tracking-tight md:text-5xl">Store files from anywhere.</h1>
+            <p class="text-lg leading-8 text-gray-600">
+              Use the web app for quick sharing, or the command-line client for scripts, backups, and large resumable uploads.
+            </p>
+          </div>
+
+          <section class="mb-10 rounded-xl border border-blue-100 bg-blue-50 p-5 md:p-7">
+            <h2 class="mb-4 text-xl font-bold">Quick start</h2>
+            <div class="overflow-x-auto rounded-lg bg-gray-950 p-4 font-mono text-sm leading-7 text-gray-100">
+              <div><span class="text-blue-300">export</span> FILEBIN_URL=https://bin.example.com</div>
+              <div><span class="text-gray-500"># Create a bin, then upload a file</span></div>
+              <div>fbin bin create</div>
+              <div>fbin file upload &lt;bin-id&gt; ./video.mp4</div>
+            </div>
+            <p class="mt-4 text-sm text-gray-600">
+              Install <code class="rounded bg-white px-1.5 py-0.5">@cloud-cli/storage</code> globally to use <code class="rounded bg-white px-1.5 py-0.5">fbin</code>, or run it with <code class="rounded bg-white px-1.5 py-0.5">npx @cloud-cli/storage</code>.
+            </p>
+          </section>
+
+          <section class="mb-10">
+            <h2 class="mb-4 text-2xl font-bold">Commands</h2>
+            <div class="grid gap-4 md:grid-cols-2">
+              <article class="rounded-xl border p-5">
+                <h3 class="mb-3 font-semibold">Bins</h3>
+                <code class="block text-sm leading-7">fbin bin create<br />fbin bin list &lt;bin-id&gt;<br />fbin bin rename &lt;bin-id&gt; &lt;new-id&gt;<br />fbin bin delete &lt;bin-id&gt;</code>
+              </article>
+              <article class="rounded-xl border p-5">
+                <h3 class="mb-3 font-semibold">Files</h3>
+                <code class="block text-sm leading-7">fbin file list &lt;bin-id&gt;<br />fbin file info &lt;bin-id&gt; &lt;file-id&gt;<br />fbin file download &lt;bin-id&gt; &lt;file-id&gt; ./file<br />fbin file delete &lt;bin-id&gt; &lt;file-id&gt;</code>
+              </article>
+              <article class="rounded-xl border p-5">
+                <h3 class="mb-3 font-semibold">Archives</h3>
+                <code class="block text-sm leading-7">fbin zip upload &lt;bin-id&gt; ./archive.zip<br />fbin zip download &lt;bin-id&gt; ./archive.zip</code>
+              </article>
+              <article class="rounded-xl border p-5">
+                <h3 class="mb-3 font-semibold">Protection</h3>
+                <code class="block text-sm leading-7">fbin lock status &lt;bin-id&gt;<br />fbin lock set &lt;bin-id&gt;<br />fbin lock remove &lt;bin-id&gt;</code>
+              </article>
+            </div>
+          </section>
+
+          <section class="mb-10 rounded-xl border p-5 md:p-7">
+            <h2 class="mb-3 text-2xl font-bold">Large uploads</h2>
+            <p class="mb-4 leading-7 text-gray-600">Uploads use verified byte ranges and run three parts in parallel by default. If a connection drops, reuse the upload ID printed to stderr.</p>
+            <div class="overflow-x-auto rounded-lg bg-gray-950 p-4 font-mono text-sm leading-7 text-gray-100">
+              <div>fbin file upload &lt;bin-id&gt; ./video.mp4 --concurrency 3</div>
+              <div>fbin file upload &lt;bin-id&gt; ./video.mp4 --file-id &lt;upload-id&gt;</div>
+            </div>
+          </section>
+
+          <section class="rounded-xl border p-5 md:p-7">
+            <h2 class="mb-3 text-2xl font-bold">Protected bins</h2>
+            <p class="leading-7 text-gray-600">Set <code class="rounded bg-gray-100 px-1.5 py-0.5">FILEBIN_PASSWORD</code> before managing a protected bin. The CLI uses HTTP Basic authentication; an environment variable keeps the password out of shell history.</p>
+          </section>
+        </main>
+        <aside class="flex flex-1 items-center justify-center mt-12" class-hidden="isHelp || binId">
           <div class="p-8 bg-gray-100 rounded-lg">
             <template if="!binList?.length">
               <h1 class="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none mb-6">

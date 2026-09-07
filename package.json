@@ -1,10 +1,10 @@
 {
   "name": "@cloud-cli/storage",
-  "version": "1.9.4",
+  "version": "1.10.3",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "fbin": "./bin/fbin.mjs"
+    "fbin": "bin/fbin.mjs"
   },
   "type": "module",
   "scripts": {
@@ -17,7 +17,7 @@
   "prettier": "@cloud-cli/prettier-config",
   "repository": {
     "type": "git",
-    "url": "https://github.com/apphorde/filebin.git"
+    "url": "git+https://github.com/apphorde/filebin.git"
   },
   "publishConfig": {
     "access": "public"

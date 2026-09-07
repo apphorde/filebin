@@ -825,6 +825,7 @@ async function readMetaFile(metaPath: string) {
 
 const match = router({
   'GET /': onGetUI,
+  'GET /help': onGetUI,
   'GET /b/:binId': onGetUI,
   'GET /manifest.webmanifest': onGetManifest,
   'GET /icon.svg': onGetIcon,

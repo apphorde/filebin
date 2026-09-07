@@ -430,3 +430,12 @@ test('UI, module, manifest, icon, and YAML specification are served', async () =
   assert.match(ui, /"filebin": "\/index\.mjs"/);
   assert.doesNotMatch(ui, /from ['"]\//, 'blob-compiled setup modules cannot resolve root-relative imports');
 });
+
+test('help page documents the command-line client', async () => {
+  const response = await fetch(`${baseUrl}/help`);
+  assert.equal(response.status, 200);
+  const page = await response.text();
+  assert.match(page, /File Bin guide/);
+  assert.match(page, /fbin file upload/);
+  assert.match(page, /aria-label="Help"/);
+});
