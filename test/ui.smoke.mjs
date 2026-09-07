@@ -21,8 +21,11 @@ test('the app mounts without a startup module error', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
 
   await expect(page.getByRole('link', { name: 'File Bin' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Help' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'New bin' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   await expect(page.locator('lucide-icon').first()).toBeAttached();
+  await page.getByRole('link', { name: 'Help' }).click();
+  await expect(page.getByRole('heading', { name: 'Store files from anywhere.' })).toBeVisible();
   expect(startupErrors).toEqual([]);
 });
