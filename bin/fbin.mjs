@@ -5,6 +5,7 @@ import { open, stat } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { parseArgs } from 'node:util';
 
 const usage = `
 Usage: fbin [--server URL] [--password PASSWORD] <command>
@@ -44,23 +45,31 @@ function fail(message) {
 }
 
 function parseArguments(args) {
-  const options = { server: process.env.FILEBIN_URL, password: process.env.FILEBIN_PASSWORD, partSize: 8 * 1024 * 1024, concurrency: 3 };
-  const positional = [];
-  for (let index = 0; index < args.length; index++) {
-    const argument = args[index];
-    if (!argument.startsWith('--')) {
-      positional.push(argument);
-      continue;
-    }
-    const key = argument.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
-    if (key === 'help') return { options, positional: ['help'] };
-    const value = args[++index];
-    if (!value || value.startsWith('--')) throw new Error(`Missing value for ${argument}`);
-    options[key] = value;
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      server: { type: 'string' },
+      password: { type: 'string' },
+      name: { type: 'string' },
+      'file-id': { type: 'string' },
+      'part-size': { type: 'string' },
+      concurrency: { type: 'string' },
+      help: { type: 'boolean' },
+    },
+  });
+  const options = {
+    server: values.server || process.env.FILEBIN_URL,
+    password: values.password || process.env.FILEBIN_PASSWORD,
+    name: values.name,
+    fileId: values['file-id'],
+    partSize: Number(values['part-size'] || 8 * 1024 * 1024),
+    concurrency: Number(values.concurrency || 3),
+  };
+  if (!Number.isSafeInteger(options.partSize) || options.partSize < 1 || !Number.isSafeInteger(options.concurrency) || options.concurrency < 1) {
+    throw new Error('--part-size and --concurrency must be positive integers');
   }
-  options.partSize = Number(options.partSize);
-  options.concurrency = Number(options.concurrency);
-  return { options, positional };
+  return { options, positional: values.help ? ['help'] : positionals };
 }
 
 function createClient(options) {
