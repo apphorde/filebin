@@ -6,17 +6,37 @@ import { basename } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-const usage = `Usage: fbin [--server URL] [--password PASSWORD] <command>
+const usage = `
+Usage: fbin [--server URL] [--password PASSWORD] <command>
 
-Commands:
-  bin create | list BIN | rename BIN NEW_ID | delete BIN
-  file list BIN | info BIN FILE | upload BIN PATH [--name NAME] [--file-id ID]
-  file download BIN FILE PATH | delete BIN FILE
-  zip upload BIN PATH | download BIN PATH
-  lock status BIN | set BIN | remove BIN
+Bins:
+  fbin bin create
+  fbin bin list <bin-id>
+  fbin bin rename <bin-id> <new-id>
+  fbin bin delete <bin-id>
 
-Environment: FILEBIN_URL, FILEBIN_PASSWORD
-Upload options: --part-size BYTES (default: 8388608), --concurrency COUNT (default: 3)`;
+Files:
+  fbin file list <bin-id>
+  fbin file info <bin-id> <file-id>
+  fbin file download <bin-id> <file-id> ./file
+  fbin file delete <bin-id> <file-id>
+
+Archives:
+  fbin zip upload <bin-id> ./archive.zip
+  fbin zip download <bin-id> ./archive.zip
+
+Protection:
+  fbin lock status <bin-id>
+  fbin lock set <bin-id>
+  fbin lock remove <bin-id>
+
+Environment: 
+  FILEBIN_URL        Server URL, e.g. https://bin.example.com
+  FILEBIN_PASSWORD   Password to use with protected bins. env keeps password out of shell history
+
+Upload options: 
+  --part-size BYTES (default: 8388608), --concurrency COUNT (default: 3)
+`;
 
 function fail(message) {
   console.error(message);
