@@ -1,6 +1,6 @@
 {
-  "name": "fbin",
-  "version": "0.0.0",
+  "name": "@cloud-cli/storage",
+  "version": "1.9.4",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
