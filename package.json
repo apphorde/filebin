@@ -8,6 +8,7 @@
     "ci": "npm i && npm test",
     "build": "tsc",
     "test": "npm run build && node --test test/*.test.mjs",
+    "test:smoke": "playwright test",
     "start": "node ./dist/server.js"
   },
   "prettier": "@cloud-cli/prettier-config",
@@ -21,15 +22,16 @@
   "devDependencies": {
     "@cloud-cli/prettier-config": "^1.0.0",
     "@cloud-cli/typescript-config": "^1.0.0",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^20.10.6",
-    "@types/yazl": "^2.4.5",
     "@types/yauzl": "^2.10.3",
+    "@types/yazl": "^2.4.5",
     "typescript": "^5.3.3"
   },
   "dependencies": {
+    "js-yaml": "^4.1.0",
     "micro-router": "^1.0.1",
-    "yazl": "^2.5.1",
     "yauzl": "^3.1.2",
-    "js-yaml": "^4.1.0"
+    "yazl": "^2.5.1"
   }
 }
