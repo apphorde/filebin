@@ -19,7 +19,7 @@ const baseUrl = `http://127.0.0.1:${server.address().port}`;
 const execFile = promisify(execFileCallback);
 
 async function cli(...args) {
-  return execFile(process.execPath, ['bin/filebin.mjs', '--server', baseUrl, ...args]);
+  return execFile(process.execPath, ['bin/fbin.mjs', '--server', baseUrl, ...args]);
 }
 
 async function createBin() {

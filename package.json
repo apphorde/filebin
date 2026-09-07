@@ -1,10 +1,10 @@
 {
-  "name": "filebin",
+  "name": "fbin",
   "version": "0.0.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "filebin": "./bin/filebin.mjs"
+    "fbin": "./bin/fbin.mjs"
   },
   "type": "module",
   "scripts": {

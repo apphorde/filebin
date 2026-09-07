@@ -63,26 +63,26 @@ The file is not available for download or listing until all bytes from `0` to
 
 ### Command-line client
 
-Install the package globally or run `node bin/filebin.mjs`. Set `FILEBIN_URL`
+Install the package globally or run `node bin/fbin.mjs`. Set `FILEBIN_URL`
 once, then use JSON-producing commands that map directly to the API:
 
 ```sh
 export FILEBIN_URL=https://bin.example.com
-filebin bin create
-filebin file upload <bin-id> ./video.mp4 --concurrency 3
-filebin file list <bin-id>
-filebin file download <bin-id> <file-id> ./video.mp4
-filebin zip download <bin-id> ./archive.zip
+fbin bin create
+fbin file upload <bin-id> ./video.mp4 --concurrency 3
+fbin file list <bin-id>
+fbin file download <bin-id> <file-id> ./video.mp4
+fbin zip download <bin-id> ./archive.zip
 ```
 
-`filebin file upload` creates an upload session and prints its ID to stderr.
+`fbin file upload` creates an upload session and prints its ID to stderr.
 If interrupted, repeat the command with `--file-id <id>` and the same source
 file; the CLI queries received ranges and uploads only missing parts. Use
 `--part-size` to control chunk size (8 MiB by default).
 
-Bin management is available through `filebin bin list`, `rename`, and
+Bin management is available through `fbin bin list`, `rename`, and
 `delete`; file management through `file list`, `info`, and `delete`; and
-protection through `filebin lock status`, `set`, and `remove`. Pass a password
+protection through `fbin lock status`, `set`, and `remove`. Pass a password
 with `--password` or `FILEBIN_PASSWORD`; the CLI uses HTTP Basic authentication
 for protected operations. Prefer `FILEBIN_PASSWORD` to avoid recording a
 password in shell history.

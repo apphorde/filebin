@@ -6,7 +6,7 @@ import { basename } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-const usage = `Usage: filebin [--server URL] [--password PASSWORD] <command>
+const usage = `Usage: fbin [--server URL] [--password PASSWORD] <command>
 
 Commands:
   bin create | list BIN | rename BIN NEW_ID | delete BIN
