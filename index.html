@@ -143,13 +143,15 @@
 
         export default function setup() {
           const isHelp = location.pathname === '/help';
-          const binId = ref(isHelp ? '' : (
-              // ?bin=123
-            new URL(location.href).searchParams.get('bin') ||
-              // /b/:binId
-              /\/b\/(?<binId>.+)/.exec(location.pathname)?.groups?.binId ||
-              localStorage.getItem('binId')
-          ));
+          const binId = ref(
+            isHelp
+              ? ''
+              : // ?bin=123
+                new URL(location.href).searchParams.get('bin') ||
+                  // /b/:binId
+                  /\/b\/(?<binId>.+)/.exec(location.pathname)?.groups?.binId ||
+                  localStorage.getItem('binId'),
+          );
           const binList = ref([]);
           const files = ref([]);
           const loading = ref(false);
@@ -157,8 +159,14 @@
           const visibleFiles = computed(() => {
             const prefix = currentFolder.value ? `${currentFolder.value}/` : '';
             return (files.value || []).filter((file) => {
-              const relativeName = String(file.name || file.id).replaceAll('\\', '/').slice(prefix.length);
-              return String(file.name || file.id).replaceAll('\\', '/').startsWith(prefix) && !relativeName.includes('/');
+              const relativeName = String(file.name || file.id)
+                .replaceAll('\\', '/')
+                .slice(prefix.length);
+              return (
+                String(file.name || file.id)
+                  .replaceAll('\\', '/')
+                  .startsWith(prefix) && !relativeName.includes('/')
+              );
             });
           });
           const folders = computed(() => {
@@ -171,9 +179,7 @@
             });
             return [...new Set(names)].sort();
           });
-          const sortedFiles = computed(() =>
-            Array.from(visibleFiles.value).sort((a, b) => (a.name > b.name ? 1 : -1)),
-          );
+          const sortedFiles = computed(() => Array.from(visibleFiles.value).sort((a, b) => (a.name > b.name ? 1 : -1)));
           const profile = ref(null);
           const dragging = ref(false);
           const creating = ref(false);
@@ -201,7 +207,7 @@
 
             events.addEventListener('state', async (event) => {
               profile.value = event.detail;
-              binList.value = JSON.parse((await getProperty('binList')) || '[]');
+              binList.value = (await getProperty('binList')) || [];
             });
 
             profile.value = await getProfile();
@@ -252,9 +258,9 @@
           async function updateBinList(f) {
             if (profile.value) {
               try {
-                const list = f(JSON.parse((await getProperty('binList')) || '[]'));
+                const list = f((await getProperty('binList')) || []);
                 binList.value = list;
-                await setProperty('binList', JSON.stringify(list));
+                await setProperty('binList', list);
               } catch (error) {
                 console.error(error);
               }
@@ -653,7 +659,10 @@
               class="h-10 w-full border border-gray-300 rounded-md px-3 mb-3"
             />
             <p class="text-sm text-red-600 mb-3" class-hidden="!lockError">{{ lockError }}</p>
-            <button class="w-full rounded-md bg-blue-700 text-white px-4 py-2 inline-flex items-center justify-center gap-2" type="submit">
+            <button
+              class="w-full rounded-md bg-blue-700 text-white px-4 py-2 inline-flex items-center justify-center gap-2"
+              type="submit"
+            >
               <lucide-icon icon="unlock" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
               <span>Unlock bin</span>
             </button>
@@ -664,7 +673,8 @@
             <p class="mb-3 text-sm font-semibold uppercase tracking-widest text-blue-700">File Bin guide</p>
             <h1 class="mb-4 text-4xl font-bold tracking-tight md:text-5xl">Store files from anywhere.</h1>
             <p class="text-lg leading-8 text-gray-600">
-              Use the web app for quick sharing, or the command-line client for scripts, backups, and large resumable uploads.
+              Use the web app for quick sharing, or the command-line client for scripts, backups, and large resumable
+              uploads.
             </p>
           </div>
 
@@ -677,7 +687,9 @@
               <div>fbin file upload &lt;bin-id&gt; ./video.mp4</div>
             </div>
             <p class="mt-4 text-sm text-gray-600">
-              Install <code class="rounded bg-white px-1.5 py-0.5">@cloud-cli/storage</code> globally to use <code class="rounded bg-white px-1.5 py-0.5">fbin</code>, or run it with <code class="rounded bg-white px-1.5 py-0.5">npx @cloud-cli/storage</code>.
+              Install <code class="rounded bg-white px-1.5 py-0.5">@cloud-cli/storage</code> globally to use
+              <code class="rounded bg-white px-1.5 py-0.5">fbin</code>, or run it with
+              <code class="rounded bg-white px-1.5 py-0.5">npx @cloud-cli/storage</code>.
             </p>
           </section>
 
@@ -686,26 +698,42 @@
             <div class="grid gap-4 md:grid-cols-2">
               <article class="rounded-xl border p-5">
                 <h3 class="mb-3 font-semibold">Bins</h3>
-                <code class="block text-sm leading-7">fbin bin create<br />fbin bin list &lt;bin-id&gt;<br />fbin bin rename &lt;bin-id&gt; &lt;new-id&gt;<br />fbin bin delete &lt;bin-id&gt;</code>
+                <code class="block text-sm leading-7"
+                  >fbin bin create<br />fbin bin list &lt;bin-id&gt;<br />fbin bin rename &lt;bin-id&gt;
+                  &lt;new-id&gt;<br />fbin bin delete &lt;bin-id&gt;</code
+                >
               </article>
               <article class="rounded-xl border p-5">
                 <h3 class="mb-3 font-semibold">Files</h3>
-                <code class="block text-sm leading-7">fbin file list &lt;bin-id&gt;<br />fbin file info &lt;bin-id&gt; &lt;file-id&gt;<br />fbin file download &lt;bin-id&gt; &lt;file-id&gt; ./file<br />fbin file delete &lt;bin-id&gt; &lt;file-id&gt;</code>
+                <code class="block text-sm leading-7"
+                  >fbin file list &lt;bin-id&gt;<br />fbin file info &lt;bin-id&gt; &lt;file-id&gt;<br />fbin file
+                  download &lt;bin-id&gt; &lt;file-id&gt; ./file<br />fbin file delete &lt;bin-id&gt;
+                  &lt;file-id&gt;</code
+                >
               </article>
               <article class="rounded-xl border p-5">
                 <h3 class="mb-3 font-semibold">Archives</h3>
-                <code class="block text-sm leading-7">fbin zip upload &lt;bin-id&gt; ./archive.zip<br />fbin zip download &lt;bin-id&gt; ./archive.zip</code>
+                <code class="block text-sm leading-7"
+                  >fbin zip upload &lt;bin-id&gt; ./archive.zip<br />fbin zip download &lt;bin-id&gt;
+                  ./archive.zip</code
+                >
               </article>
               <article class="rounded-xl border p-5">
                 <h3 class="mb-3 font-semibold">Protection</h3>
-                <code class="block text-sm leading-7">fbin lock status &lt;bin-id&gt;<br />fbin lock set &lt;bin-id&gt;<br />fbin lock remove &lt;bin-id&gt;</code>
+                <code class="block text-sm leading-7"
+                  >fbin lock status &lt;bin-id&gt;<br />fbin lock set &lt;bin-id&gt;<br />fbin lock remove
+                  &lt;bin-id&gt;</code
+                >
               </article>
             </div>
           </section>
 
           <section class="mb-10 rounded-xl border p-5 md:p-7">
             <h2 class="mb-3 text-2xl font-bold">Large uploads</h2>
-            <p class="mb-4 leading-7 text-gray-600">Uploads use verified byte ranges and run three parts in parallel by default. If a connection drops, reuse the upload ID printed to stderr.</p>
+            <p class="mb-4 leading-7 text-gray-600">
+              Uploads use verified byte ranges and run three parts in parallel by default. If a connection drops, reuse
+              the upload ID printed to stderr.
+            </p>
             <div class="overflow-x-auto rounded-lg bg-gray-950 p-4 font-mono text-sm leading-7 text-gray-100">
               <div>fbin file upload &lt;bin-id&gt; ./video.mp4 --concurrency 3</div>
               <div>fbin file upload &lt;bin-id&gt; ./video.mp4 --file-id &lt;upload-id&gt;</div>
@@ -714,7 +742,11 @@
 
           <section class="rounded-xl border p-5 md:p-7">
             <h2 class="mb-3 text-2xl font-bold">Protected bins</h2>
-            <p class="leading-7 text-gray-600">Set <code class="rounded bg-gray-100 px-1.5 py-0.5">FILEBIN_PASSWORD</code> before managing a protected bin. The CLI uses HTTP Basic authentication; an environment variable keeps the password out of shell history.</p>
+            <p class="leading-7 text-gray-600">
+              Set <code class="rounded bg-gray-100 px-1.5 py-0.5">FILEBIN_PASSWORD</code> before managing a protected
+              bin. The CLI uses HTTP Basic authentication; an environment variable keeps the password out of shell
+              history.
+            </p>
           </section>
         </main>
         <aside class="flex flex-1 items-center justify-center mt-12" class-hidden="isHelp || binId">
@@ -818,9 +850,23 @@
           <h2 class="text-lg font-semibold">{{ protectedBin ? 'Bin protection' : 'Protect this bin' }}</h2>
           <p class="text-sm text-gray-600">All file, folder, metadata, and ZIP access will require this password.</p>
           <label class="text-sm font-medium" for="lockpassword">{{ protectedBin ? 'New password' : 'Password' }}</label>
-          <input id="lockpassword" ref="lockpassword" type="password" minlength="8" required class="h-10 border rounded-md px-3" />
+          <input
+            id="lockpassword"
+            ref="lockpassword"
+            type="password"
+            minlength="8"
+            required
+            class="h-10 border rounded-md px-3"
+          />
           <label class="text-sm font-medium" for="lockpasswordconfirm">Confirm password</label>
-          <input id="lockpasswordconfirm" ref="lockpasswordconfirm" type="password" minlength="8" required class="h-10 border rounded-md px-3" />
+          <input
+            id="lockpasswordconfirm"
+            ref="lockpasswordconfirm"
+            type="password"
+            minlength="8"
+            required
+            class="h-10 border rounded-md px-3"
+          />
           <p class="text-sm text-red-600" class-hidden="!lockError">{{ lockError }}</p>
           <div class="flex justify-between gap-2 mt-2">
             <button class="text-red-600 px-2" type="button" class-hidden="!protectedBin" on-click="onRemovePassword()">
