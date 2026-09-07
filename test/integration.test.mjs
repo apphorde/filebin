@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
+import { execFile as execFileCallback } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { load } from 'js-yaml';
 import * as yauzl from 'yauzl';
 import * as yazl from 'yazl';
+import { promisify } from 'node:util';
 
 const rootDir = await mkdtemp(join(tmpdir(), 'filebin-'));
 process.env.ROOT_DIR = rootDir;
@@ -14,6 +16,11 @@ const { start } = await import('../dist/index.js');
 const server = start({ port: 0 });
 await new Promise((resolve) => server.once('listening', resolve));
 const baseUrl = `http://127.0.0.1:${server.address().port}`;
+const execFile = promisify(execFileCallback);
+
+async function cli(...args) {
+  return execFile(process.execPath, ['bin/filebin.mjs', '--server', baseUrl, ...args]);
+}
 
 async function createBin() {
   const response = await fetch(`${baseUrl}/bin`, { method: 'POST' });
@@ -229,6 +236,31 @@ test('file parts require a matching SHA-256 digest', async () => {
     ranges: [],
     complete: false,
   });
+});
+
+test('CLI manages bins, files, and protected access', async () => {
+  const { stdout: created } = await cli('bin', 'create');
+  const { binId } = JSON.parse(created);
+  const localFile = join(rootDir, 'cli-source.txt');
+  const downloadedFile = join(rootDir, 'cli-download.txt');
+  await writeFile(localFile, 'filebin CLI upload');
+
+  const { stdout: uploaded } = await cli('file', 'upload', binId, localFile, '--part-size', '4', '--concurrency', '2');
+  const file = JSON.parse(uploaded);
+  assert.equal(await readFile(join(rootDir, binId, file.id), 'utf8'), 'filebin CLI upload');
+
+  const { stdout: listed } = await cli('file', 'list', binId);
+  assert.equal(JSON.parse(listed)[0].id, file.id);
+  await cli('file', 'download', binId, file.id, downloadedFile);
+  assert.equal(await readFile(downloadedFile, 'utf8'), 'filebin CLI upload');
+
+  await cli('--password', 'correct horse', 'lock', 'set', binId);
+  const { stdout: status } = await cli('lock', 'status', binId);
+  assert.deepEqual(JSON.parse(status), { locked: true, unlocked: false });
+  const { stdout: protectedList } = await cli('--password', 'correct horse', 'file', 'list', binId);
+  assert.equal(JSON.parse(protectedList)[0].id, file.id);
+  await cli('--password', 'correct horse', 'file', 'delete', binId, file.id);
+  await cli('--password', 'correct horse', 'bin', 'delete', binId);
 });
 
 test('legacy MOVE rename remains supported', async () => {

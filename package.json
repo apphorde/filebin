@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "filebin": "./bin/filebin.mjs"
+  },
   "type": "module",
   "scripts": {
     "ci": "npm i && npm test",
