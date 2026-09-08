@@ -220,6 +220,10 @@ test('parallel file parts can be resumed and publish atomically', async () => {
   assert.ok(results.some((result) => result.url === `${baseUrl}/f/${binId}/${fileId}`));
   assert.equal(await (await fetch(`${baseUrl}/f/${binId}/${fileId}`)).text(), content);
   assert.equal((await fetch(`${baseUrl}/f/${binId}/${fileId}/upload`)).status, 404);
+
+  const page = await (await fetch(`${baseUrl}/b/${binId}`)).text();
+  assert.match(page, /"filesLoaded":true/);
+  assert.match(page, /"files":\[\{"name":"video\.mp4"/);
 });
 
 test('completed upload state recovers an interrupted final rename', async () => {

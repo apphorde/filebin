@@ -597,6 +597,7 @@ function onGetUI(req, res, args) {
       state = {
         ...state,
         files,
+        filesLoaded: true,
         locked,
         unlocked,
       };

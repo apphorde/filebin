@@ -149,6 +149,7 @@
           const appStart = computed(() => !isHelp && !isLanding && !binId.value);
           const binList = ref([]);
           const files = ref([]);
+          const filesLoaded = ref(false);
           const loading = ref(false);
           const currentFolder = ref('');
           const visibleFiles = computed(() => {
@@ -197,7 +198,7 @@
               protectedBin.value = status.locked;
               locked.value = status.locked && !status.unlocked;
 
-              if (!locked.value && !files.value?.length) updateList();
+              if (!locked.value && !filesLoaded.value) updateList();
             }
 
           });
@@ -432,6 +433,7 @@
             try {
               const fileIds = await listFiles(binId.value);
               files.value = await Promise.all(fileIds.map((f) => readMetadata(binId.value, f)));
+              filesLoaded.value = true;
             } finally {
               loading.value = false;
             }
@@ -447,6 +449,7 @@
 
           return {
             files,
+            filesLoaded,
             binId,
             binList,
             dragging,
