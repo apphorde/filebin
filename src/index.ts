@@ -11,7 +11,7 @@ import { load } from 'js-yaml';
 import { promisify } from 'node:util';
 
 const rootDir = process.env.ROOT_DIR;
-const authIssuer = 'https://auth.api.apphor.de';
+const authIssuer = process.env.AUTH_ISSUER;
 const authClientPromise = fetch(`${authIssuer}/node.mjs`)
   .then((response) => response.text())
   .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
