@@ -204,6 +204,21 @@ async function onAuthProfile(req, res) {
   res.writeHead(200, jsonHeaders).end(JSON.stringify(profile));
 }
 
+async function readAuthState(req) {
+  try {
+    const auth = await getAuthClient();
+    const profile = auth && await auth.getSessionProfile(req);
+    if (!profile) return { profile: null, binList: [] };
+
+    const cookie = auth.getSessionCookie(req);
+    const response = await fetch(new URL('/properties/binList', authIssuer), { headers: { cookie } });
+    const property: any = response.ok ? await response.json() : null;
+    return { profile, binList: property?.value || [] };
+  } catch {
+    return { profile: null, binList: [] };
+  }
+}
+
 async function proxyAuthRequest(req, res, path, init: any = {}) {
   const auth = await getAuthClient();
   if (!auth) return res.writeHead(503).end('Authentication service unavailable');
@@ -558,10 +573,14 @@ async function onEsModule(req, res) {
 
 const indexFile = readFileSync('./index.html', 'utf-8');
 
+function serializeState(state) {
+  return JSON.stringify(state).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e').replaceAll('&', '\\u0026');
+}
+
 function onGetUI(req, res, args) {
   tryCatch(res, async () => {
     const { binId } = args;
-    let state: any;
+    let state: any = await readAuthState(req);
 
     if (binId) {
       const baseUrl = getProxyHost(req);
@@ -576,6 +595,7 @@ function onGetUI(req, res, args) {
       const files = unlocked ? await Promise.all(fileIds.map((x) => readMetadata(binId, x, baseUrl))) : [];
 
       state = {
+        ...state,
         files,
         locked,
         unlocked,
@@ -583,8 +603,8 @@ function onGetUI(req, res, args) {
     }
 
     res
-      .writeHead(200, { 'content-type': 'text/html' })
-      .end(indexFile.replace('<!-- %state% -->', JSON.stringify(state || {})));
+      .writeHead(200, { 'content-type': 'text/html', 'cache-control': 'private, no-store' })
+      .end(indexFile.replace('<!-- %state% -->', serializeState(state || {})));
   });
 }
 

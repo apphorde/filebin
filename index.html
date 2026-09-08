@@ -200,19 +200,7 @@
               if (!locked.value && !files.value?.length) updateList();
             }
 
-            profile.value = await getProfile();
-            binList.value = profile.value ? (await getProperty('binList')) || [] : [];
           });
-
-          async function getProfile() {
-            const response = await fetch('/auth/profile');
-            return response.ok ? response.json() : null;
-          }
-
-          async function getProperty(key) {
-            const response = await fetch(`/auth/property/${encodeURIComponent(key)}`);
-            return response.ok ? (await response.json()).value : '';
-          }
 
           async function setProperty(key, value) {
             return fetch('/auth/property', {
@@ -517,34 +505,37 @@
           <span>Drop your files here to start the upload.</span>
         </div>
 
-         <div class="bg-gray-100 flex items-center justify-between border-b px-4 md:px-6 w-full py-3" class-hidden="isLanding">
+         <div class="bg-gray-100 flex items-center justify-between border-b px-3 md:px-6 w-full py-2.5" class-hidden="isLanding">
            <a class="flex items-center gap-2 font-semibold" href="#" on-click="onHomeClick()"
-             ><lucide-icon icon="folder" size="14" icon-classes="h-6 w-6"></lucide-icon>
+             ><img src="/icon.svg" alt="File Bin" class="h-8 w-8 rounded-lg" />
            </a>
            <a attr-href="getBinUrl()" class="mx-4 min-w-0 truncate text-xs rounded hidden md:block" on-click.prevent="onCopyUrl()"
              >{{ binId || '' }}</a
            >
            <div class="flex items-center justify-end gap-2">
              <button
-               class="py-2 px-4 text-sm text-white inline-flex items-center gap-2 rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700"
-               on-click="onAddBin()"
-               bind-disabled="creating"
-             >
+                class="h-9 w-9 p-0 text-sm text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700 md:w-auto md:px-3"
+                on-click="onAddBin()"
+                bind-disabled="creating"
+                aria-label="New bin"
+              >
                <lucide-icon icon="plus" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-               <span>New bin</span>
+               <span class="hidden md:inline">New bin</span>
              </button>
              <button
-               class="py-2 px-4 text-sm text-white inline-flex items-center gap-2 rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700"
+               class="h-9 w-9 p-0 text-sm text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700 md:w-auto md:px-3"
                on-click="onStartUpload()"
+               aria-label="Upload files"
              >
                <lucide-icon icon="upload" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-               <span>Upload files</span>
+               <span class="hidden md:inline">Upload files</span>
              </button>
             <div>
               <template if="profile">
                 <button
-                  class="py-2 px-4 text-sm border-0 bg-transparent inline-flex items-center rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none"
-                  on-click="signOut()"
+                   class="h-9 w-9 p-0 text-sm border-0 bg-transparent inline-flex items-center justify-center rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none md:w-auto md:px-2"
+                   on-click="signOut()"
+                   aria-label="Sign out"
                 >
                   <lucide-icon icon="user-round" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
                   <span class="sr-only">Sign out {{ profile?.name }}</span>
@@ -552,11 +543,12 @@
               </template>
               <template if="!profile">
                 <button
-                  class="py-2 px-4 text-sm text-white inline-flex items-center gap-2 rounded-md text-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700"
-                  on-click="signIn(true)"
-                >
-                  <lucide-icon icon="log-in" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-                  <span>Sign in</span>
+                   class="h-9 w-9 p-0 text-sm text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700 md:w-auto md:px-3"
+                   on-click="signIn(true)"
+                   aria-label="Sign in"
+                 >
+                   <lucide-icon icon="log-in" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
+                   <span class="hidden md:inline">Sign in</span>
                 </button>
               </template>
             </div>
@@ -567,7 +559,7 @@
           <div class="w-full max-w-5xl">
             <div class="mb-16 flex items-center justify-between">
               <a class="flex items-center gap-3 text-lg font-bold" href="/app">
-                <lucide-icon icon="folder" size="14" icon-classes="h-8 w-8 text-blue-700"></lucide-icon>
+                <img src="/icon.svg" alt="File Bin" class="h-10 w-10 rounded-xl" />
                 <span>File Bin</span>
               </a>
               <a class="rounded-md border border-blue-700 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50" href="/app">
