@@ -118,14 +118,6 @@
       <script setup>
         import { ref, computed, templateRef, onInit } from '@li3/web';
         import {
-          events,
-          getProfile,
-          getProperty,
-          setProperty,
-          signIn,
-          signOut,
-        } from 'https://auth.api.apphor.de/index.mjs';
-        import {
           createBin,
           removeBin,
           listFiles,
@@ -208,13 +200,36 @@
               if (!locked.value && !files.value?.length) updateList();
             }
 
-            events.addEventListener('state', async (event) => {
-              profile.value = event.detail;
-              binList.value = (await getProperty('binList')) || [];
-            });
-
             profile.value = await getProfile();
+            binList.value = profile.value ? (await getProperty('binList')) || [] : [];
           });
+
+          async function getProfile() {
+            const response = await fetch('/auth/profile');
+            return response.ok ? response.json() : null;
+          }
+
+          async function getProperty(key) {
+            const response = await fetch(`/auth/property/${encodeURIComponent(key)}`);
+            return response.ok ? (await response.json()).value : '';
+          }
+
+          async function setProperty(key, value) {
+            return fetch('/auth/property', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ key, value }),
+            });
+          }
+
+          function signIn() {
+            location.href = `/auth/login?url=${encodeURIComponent(location.href)}`;
+          }
+
+          async function signOut() {
+            await fetch('/auth/logout', { method: 'POST' });
+            location.reload();
+          }
 
           function onHomeClick() {
             localStorage.setItem('binId', '');

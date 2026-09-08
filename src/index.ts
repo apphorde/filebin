@@ -11,6 +11,15 @@ import { load } from 'js-yaml';
 import { promisify } from 'node:util';
 
 const rootDir = process.env.ROOT_DIR;
+const authIssuer = 'https://auth.api.apphor.de';
+const authClientPromise = fetch(`${authIssuer}/node.mjs`)
+  .then((response) => response.text())
+  .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
+  .then(({ createAuthClient }) => createAuthClient({
+    issuer: authIssuer,
+    clientId: process.env.FILEBIN_OIDC_CLIENT_ID || 'filebin',
+  }))
+  .catch(() => null);
 const jsonHeaders = { 'content-type': 'application/json' };
 const lockFileName = '.bin.meta';
 const sessionSecret = randomBytes(32);
@@ -182,6 +191,62 @@ async function onReadMetadata(req, res, args) {
 
   res.writeHead(200, jsonHeaders);
   res.end(JSON.stringify(metadata));
+}
+
+async function getAuthClient() {
+  return authClientPromise;
+}
+
+async function onAuthProfile(req, res) {
+  const auth = await getAuthClient();
+  const profile = auth && await auth.getSessionProfile(req);
+  if (!profile) return unauthorized(res);
+  res.writeHead(200, jsonHeaders).end(JSON.stringify(profile));
+}
+
+async function proxyAuthRequest(req, res, path, init: any = {}) {
+  const auth = await getAuthClient();
+  if (!auth) return res.writeHead(503).end('Authentication service unavailable');
+
+  const cookie = auth.getSessionCookie(req);
+  if (!cookie) return unauthorized(res);
+
+  const response = await fetch(new URL(path, authIssuer), {
+    ...init,
+    headers: { ...init.headers, cookie },
+  });
+  res.writeHead(response.status, Object.fromEntries(response.headers));
+  res.end(await response.arrayBuffer());
+}
+
+async function onAuthProperty(req, res, args) {
+  const { key = '' } = args;
+  return proxyAuthRequest(req, res, `/properties/${encodeURIComponent(key)}`);
+}
+
+async function onSetAuthProperty(req, res) {
+  const body = await readStream(req);
+  return proxyAuthRequest(req, res, '/properties', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body,
+  });
+}
+
+async function onAuthLogin(req, res) {
+  const forwardedProtocol = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0];
+  const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost').split(',')[0];
+  const origin = `${forwardedProtocol}://${forwardedHost}`;
+  const requestedUrl = new URL(req.url, origin).searchParams.get('url') || `${origin}/app`;
+  const url = new URL(requestedUrl, origin);
+  if (url.origin !== origin) url.href = `${origin}/app`;
+  const loginUrl = new URL('/login', authIssuer);
+  loginUrl.searchParams.set('url', String(url));
+  res.writeHead(302, { location: String(loginUrl) }).end();
+}
+
+async function onAuthLogout(req, res) {
+  return proxyAuthRequest(req, res, '/', { method: 'DELETE' });
 }
 
 async function onWriteMetadata(req, res, args) {
@@ -860,6 +925,11 @@ const match = router({
   'GET /': onGetUI,
   'GET /app': onGetUI,
   'GET /help': onGetUI,
+  'GET /auth/profile': onAuthProfile,
+  'GET /auth/property/:key': onAuthProperty,
+  'PUT /auth/property': onSetAuthProperty,
+  'GET /auth/login': onAuthLogin,
+  'POST /auth/logout': onAuthLogout,
   'GET /b/:binId': onGetUI,
   'GET /manifest.webmanifest': onGetManifest,
   'GET /icon.svg': onGetIcon,
