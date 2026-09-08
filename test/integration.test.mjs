@@ -434,7 +434,7 @@ test('UI, module, manifest, icon, and YAML specification are served', async () =
   const resources = [
     ['/', /Protect bin/],
     ['/index.mjs', /export async function unlockBin/],
-    ['/manifest.webmanifest', /FileBin/],
+    ['/manifest.webmanifest', /"start_url": "\/app"/],
     ['/icon.svg', /<svg/],
     ['/api.yaml', /openapi: 3\.0\.3/],
     ['/api', /openapi: 3\.0\.3/],
@@ -462,6 +462,10 @@ test('help page documents the command-line client', async () => {
   assert.match(page, /aria-label="Help"/);
 
   const landingPage = await (await fetch(`${baseUrl}/`)).text();
-  assert.match(landingPage, /class-hidden="binId && !isHelp"/);
-  assert.match(landingPage, /Recent file bins/);
+  assert.match(landingPage, /class-hidden="!isLanding"/);
+  assert.match(landingPage, /A little bin for all your files/);
+
+  const appPage = await (await fetch(`${baseUrl}/app`)).text();
+  assert.match(appPage, /Start with a fresh file bin/);
+  assert.match(appPage, /on-click="onStartUpload\(\)"/);
 });
