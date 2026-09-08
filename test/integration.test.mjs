@@ -222,6 +222,26 @@ test('parallel file parts can be resumed and publish atomically', async () => {
   assert.equal((await fetch(`${baseUrl}/f/${binId}/${fileId}/upload`)).status, 404);
 });
 
+test('completed upload state recovers an interrupted final rename', async () => {
+  const binId = await createBin();
+  const fileId = await createFile(binId, { name: 'recovered.txt' });
+  const content = 'recover me';
+  const range = { start: 0, end: content.length - 1 };
+
+  await writeFile(join(rootDir, binId, `.upload-${fileId}`), content);
+  await writeFile(
+    join(rootDir, binId, `.upload-${fileId}.json`),
+    JSON.stringify({ total: content.length, ranges: [range], pending: [], parts: [{ ...range, digest: 'test' }] }),
+  );
+
+  const response = await writeFilePart(binId, fileId, content, 0, content.length);
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), { id: fileId, bin: binId, url: `${baseUrl}/f/${binId}/${fileId}` });
+  assert.equal(await readFile(join(rootDir, binId, fileId), 'utf8'), content);
+  assert.deepEqual(await (await fetch(`${baseUrl}/bin/${binId}`)).json(), [fileId]);
+  assert.equal((await fetch(`${baseUrl}/f/${binId}/${fileId}/upload`)).status, 404);
+});
+
 test('file parts require a matching SHA-256 digest', async () => {
   const binId = await createBin();
   const fileId = await createFile(binId);

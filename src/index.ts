@@ -79,6 +79,26 @@ async function writeUploadState(binId: string, fileId: string, state: UploadStat
   await writeFile(getUploadStatePath(binId, fileId), JSON.stringify(state));
 }
 
+async function recoverCompletedUpload(binId: string, fileId: string) {
+  const filePath = join(rootDir, binId, fileId);
+  const uploadPath = getUploadDataPath(binId, fileId);
+  const statePath = getUploadStatePath(binId, fileId);
+
+  if (!existsSync(statePath)) return false;
+
+  if (existsSync(filePath)) {
+    await Promise.all([rm(uploadPath, { force: true }), rm(statePath, { force: true })]);
+    return true;
+  }
+
+  const state = JSON.parse(await readFile(statePath, 'utf8')) as UploadState;
+  if (!isUploadComplete(state) || !existsSync(uploadPath)) return false;
+
+  await rename(uploadPath, filePath);
+  await rm(statePath, { force: true });
+  return true;
+}
+
 export type Options = { port?: number };
 
 async function onFileExists(_req, res, args) {
@@ -116,7 +136,11 @@ async function onReadFile(_req, res, args) {
 
 async function onReadUpload(_req, res, args) {
   const { binId = '', fileId = '' } = args;
-  const state = await readUploadState(binId, fileId);
+  const statePath = getUploadStatePath(binId, fileId);
+  const state = await withUploadLock(statePath, async () => {
+    await recoverCompletedUpload(binId, fileId);
+    return readUploadState(binId, fileId);
+  });
   if (!state) return notFound(res);
   res.writeHead(200, jsonHeaders).end(JSON.stringify({ total: state.total, ranges: state.ranges, complete: false }));
 }
@@ -248,6 +272,7 @@ async function onWriteFile(req, res, args) {
   let state: UploadState | null = null;
   let duplicate = false;
   await withUploadLock(statePath, async () => {
+    await recoverCompletedUpload(binId, fileId);
     state = await readUploadState(binId, fileId);
     if (!state || (state.total !== null && state.total !== contentRange.total)) {
       state = null;
@@ -263,7 +288,14 @@ async function onWriteFile(req, res, args) {
     state.pending.push(range);
     await writeUploadState(binId, fileId, state);
   });
-  if (!state) return res.writeHead(409).end('Conflicting upload range or total size');
+  if (!state) {
+    if (existsSync(filePath)) {
+      req.resume();
+      req.on('end', () => sendFileReference(req, res, binId, fileId));
+      return;
+    }
+    return res.writeHead(409).end('Conflicting upload range or total size');
+  }
   if (duplicate) {
     req.resume();
     req.on('end', () => res.writeHead(202, jsonHeaders).end(JSON.stringify({ complete: false })));
@@ -306,6 +338,7 @@ async function onWriteFile(req, res, args) {
         current.parts.push({ ...range, digest });
         complete = isUploadComplete(current);
         if (complete) {
+          await writeUploadState(binId, fileId, current);
           await rename(uploadPath, filePath);
           await rm(statePath, { force: true });
         } else {
