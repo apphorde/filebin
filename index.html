@@ -517,7 +517,7 @@
            >
            <div class="flex items-center justify-end gap-2">
              <button
-                class="h-9 w-9 p-0 text-sm text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700 md:w-auto md:px-3"
+                class="h-9 w-9 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 disabled:pointer-events-none border border-gray-300 bg-white hover:bg-gray-50 md:w-auto md:px-3"
                 on-click="onAddBin()"
                 bind-disabled="creating"
                 aria-label="New bin"
@@ -546,11 +546,11 @@
               </template>
               <template if="!profile">
                 <button
-                   class="h-9 w-9 p-0 text-sm text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700 md:w-auto md:px-3"
+                   class="h-9 w-9 p-0 text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 focus-visible:ring-offset-2 disabled:pointer-events-none border border-pink-700 bg-pink-600 hover:bg-pink-700 md:w-auto md:px-3"
                    on-click="signIn(true)"
                    aria-label="Sign in"
                  >
-                   <lucide-icon icon="log-in" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
+                   <lucide-icon icon="user-round" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
                    <span class="hidden md:inline">Sign in</span>
                 </button>
               </template>
