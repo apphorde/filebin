@@ -19,6 +19,7 @@ Bins:
 Files:
   fbin file list <bin-id>
   fbin file info <bin-id> <file-id>
+  fbin file upload <bin-id> ./file [--immutable]
   fbin file download <bin-id> <file-id> ./file
   fbin file delete <bin-id> <file-id>
 
@@ -56,6 +57,7 @@ function parseArguments(args) {
       'part-size': { type: 'string' },
       concurrency: { type: 'string' },
       help: { type: 'boolean' },
+      immutable: { type: 'boolean' },
     },
   });
   const options = {
@@ -63,6 +65,7 @@ function parseArguments(args) {
     password: values.password || process.env.FILEBIN_PASSWORD,
     name: values.name,
     fileId: values['file-id'],
+    immutable: values.immutable || false,
     partSize: Number(values['part-size'] || 8 * 1024 * 1024),
     concurrency: Number(values.concurrency || 3),
   };
@@ -112,7 +115,7 @@ async function upload(request, binId, path, options) {
   const file = await stat(path);
   let fileId = options.fileId;
   if (!fileId) {
-    const metadata = { name: options.name || basename(path) };
+    const metadata = { name: options.name || basename(path), ...(options.immutable ? { immutable: true } : {}) };
     fileId = (await json(request, `/f/${binId}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(metadata) })).fileId;
     console.error(`Created upload session ${fileId}`);
   }
@@ -152,8 +155,24 @@ async function upload(request, binId, path, options) {
 }
 
 async function download(request, remotePath, localPath) {
-  const response = await request(remotePath);
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(localPath));
+  let localSize = 0;
+  try {
+    localSize = (await stat(localPath)).size;
+  } catch {}
+
+  const head = await request(remotePath, { method: 'HEAD' });
+  const remoteSize = Number(head.headers.get('content-length') || 0);
+  if (localSize === remoteSize && remoteSize > 0) return;
+
+  const headers = {};
+  if (localSize > 0 && localSize < remoteSize) {
+    headers.range = `bytes=${localSize}-`;
+    const etag = head.headers.get('etag');
+    if (etag) headers['if-range'] = etag;
+  }
+  const response = await request(remotePath, { headers });
+  const append = response.status === 206 && localSize > 0;
+  await pipeline(Readable.fromWeb(response.body), createWriteStream(localPath, { flags: append ? 'a' : 'w' }));
 }
 
 async function main() {

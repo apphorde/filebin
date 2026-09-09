@@ -61,6 +61,20 @@ The file is not available for download or listing until all bytes from `0` to
 `total - 1` have been received. See `api.yaml` for the `Content-Range` and
 `Digest` request header contract.
 
+Upload sessions are cleaned up after 72 hours by default. Set
+`UPLOAD_RETENTION_HOURS` to change the retention period and
+`UPLOAD_CLEANUP_INTERVAL_MINUTES` to change the cleanup interval.
+
+For backup objects, create the file with `{ immutable: true }` metadata. The
+object remains writable while incomplete, then becomes immutable after commit;
+replacement and deletion return `409`. Completed files expose a lowercase
+SHA-256 checksum in metadata and as a quoted `ETag`.
+
+File downloads support single-byte HTTP ranges. Clients can send
+`Range: bytes=<offset>-` with `If-Range: <ETag>` and receive `206 Partial
+Content`. The `fbin file download` command automatically resumes an existing
+partial local file when the remote ETag is available.
+
 ### Command-line client
 
 Install the package globally or run `node bin/fbin.mjs`. Set `FILEBIN_URL`

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -262,6 +262,37 @@ test('file parts require a matching SHA-256 digest', async () => {
   });
 });
 
+test('completed files expose a checksum, support ranges, and can be immutable', async () => {
+  const binId = await createBin();
+  const fileId = await createFile(binId, { name: 'backup.bin', immutable: true });
+  const content = Buffer.from('0123456789');
+  const digest = createHash('sha256').update(content).digest('hex');
+
+  let response = await writeFilePart(binId, fileId, content, 0, content.length);
+  assert.equal(response.status, 202);
+
+  response = await fetch(`${baseUrl}/meta/${binId}/${fileId}`);
+  const metadata = await response.json();
+  assert.equal(metadata.sha256, digest);
+  assert.equal(metadata.etag, `"${digest}"`);
+  assert.equal(metadata.immutable, true);
+
+  response = await fetch(`${baseUrl}/f/${binId}/${fileId}`, {
+    headers: { range: 'bytes=2-5', 'if-range': `"${digest}"` },
+  });
+  assert.equal(response.status, 206);
+  assert.equal(response.headers.get('content-range'), 'bytes 2-5/10');
+  assert.equal(await response.text(), '2345');
+
+  response = await fetch(`${baseUrl}/f/${binId}/${fileId}`, {
+    method: 'PUT',
+    body: 'replacement',
+  });
+  assert.equal(response.status, 409);
+  response = await fetch(`${baseUrl}/f/${binId}/${fileId}`, { method: 'DELETE' });
+  assert.equal(response.status, 409);
+});
+
 test('CLI manages bins, files, and protected access', async () => {
   const { stdout: created } = await cli('bin', 'create');
   const { binId } = JSON.parse(created);
@@ -275,6 +306,9 @@ test('CLI manages bins, files, and protected access', async () => {
 
   const { stdout: listed } = await cli('file', 'list', binId);
   assert.equal(JSON.parse(listed)[0].id, file.id);
+  await cli('file', 'download', binId, file.id, downloadedFile);
+  assert.equal(await readFile(downloadedFile, 'utf8'), 'filebin CLI upload');
+  await truncate(downloadedFile, 5);
   await cli('file', 'download', binId, file.id, downloadedFile);
   assert.equal(await readFile(downloadedFile, 'utf8'), 'filebin CLI upload');
 

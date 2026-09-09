@@ -515,8 +515,17 @@
            <a attr-href="getBinUrl()" class="mx-4 min-w-0 truncate text-xs rounded hidden md:block" on-click.prevent="onCopyUrl()"
              >{{ binId || '' }}</a
            >
-           <div class="flex items-center justify-end gap-2">
-             <button
+            <div class="flex items-center justify-end gap-2">
+              <a
+                class="h-9 w-9 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 border border-gray-300 bg-white hover:bg-gray-50 md:w-auto md:px-3"
+                href="/help"
+                aria-label="Help"
+                title="Help"
+              >
+                <lucide-icon icon="circle-question-mark" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
+                <span class="hidden md:inline">Help</span>
+              </a>
+              <button
                 class="h-9 w-9 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 disabled:pointer-events-none border border-gray-300 bg-white hover:bg-gray-50 md:w-auto md:px-3"
                 on-click="onAddBin()"
                 bind-disabled="creating"

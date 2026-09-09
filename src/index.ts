@@ -25,10 +25,13 @@ const lockFileName = '.bin.meta';
 const sessionSecret = randomBytes(32);
 const scrypt = promisify(scryptCallback);
 const uploadLocks = new Map<string, Promise<void>>();
+const uploadRetentionMs = Number(process.env.UPLOAD_RETENTION_HOURS || 72) * 60 * 60 * 1000;
+const uploadCleanupIntervalMs = Number(process.env.UPLOAD_CLEANUP_INTERVAL_MINUTES || 60) * 60 * 1000;
 
 type ByteRange = { start: number; end: number };
 type UploadPart = ByteRange & { digest: string };
-type UploadState = { total: number | null; ranges: ByteRange[]; pending: ByteRange[]; parts: UploadPart[] };
+type UploadState = { total: number | null; ranges: ByteRange[]; pending: ByteRange[]; parts: UploadPart[]; immutable?: boolean };
+type SystemMetadata = { immutable?: boolean; committedAt?: string; sha256?: string };
 
 function getUploadDataPath(binId: string, fileId: string) {
   return join(rootDir, binId, `.upload-${fileId}`);
@@ -36,6 +39,10 @@ function getUploadDataPath(binId: string, fileId: string) {
 
 function getUploadStatePath(binId: string, fileId: string) {
   return getUploadDataPath(binId, fileId) + '.json';
+}
+
+function getSystemMetadataPath(binId: string, fileId: string) {
+  return join(rootDir, binId, `${fileId}.system`);
 }
 
 async function withUploadLock<T>(path: string, fn: () => Promise<T>) {
@@ -88,6 +95,37 @@ async function writeUploadState(binId: string, fileId: string, state: UploadStat
   await writeFile(getUploadStatePath(binId, fileId), JSON.stringify(state));
 }
 
+async function readSystemMetadata(binId: string, fileId: string): Promise<SystemMetadata> {
+  const path = getSystemMetadataPath(binId, fileId);
+  try {
+    return existsSync(path) ? JSON.parse(await readFile(path, 'utf8')) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeSystemMetadata(binId: string, fileId: string, metadata: SystemMetadata) {
+  const path = getSystemMetadataPath(binId, fileId);
+  const temporaryPath = `${path}.${randomUUID()}`;
+  await writeFile(temporaryPath, JSON.stringify(metadata));
+  await rename(temporaryPath, path);
+}
+
+async function sha256File(filePath: string) {
+  const hash = createHash('sha256');
+  await new Promise<void>((resolve, reject) => {
+    const stream = createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', resolve);
+    stream.on('error', reject);
+  });
+  return hash.digest('hex');
+}
+
+function getEtag(sha256: string | undefined) {
+  return sha256 ? `"${sha256}"` : undefined;
+}
+
 async function recoverCompletedUpload(binId: string, fileId: string) {
   const filePath = join(rootDir, binId, fileId);
   const uploadPath = getUploadDataPath(binId, fileId);
@@ -96,6 +134,14 @@ async function recoverCompletedUpload(binId: string, fileId: string) {
   if (!existsSync(statePath)) return false;
 
   if (existsSync(filePath)) {
+    const state = JSON.parse(await readFile(statePath, 'utf8')) as UploadState;
+    if (!(await readSystemMetadata(binId, fileId)).sha256) {
+      await writeSystemMetadata(binId, fileId, {
+        sha256: await sha256File(filePath),
+        committedAt: new Date().toISOString(),
+        ...(state.immutable ? { immutable: true } : {}),
+      });
+    }
     await Promise.all([rm(uploadPath, { force: true }), rm(statePath, { force: true })]);
     return true;
   }
@@ -103,7 +149,13 @@ async function recoverCompletedUpload(binId: string, fileId: string) {
   const state = JSON.parse(await readFile(statePath, 'utf8')) as UploadState;
   if (!isUploadComplete(state) || !existsSync(uploadPath)) return false;
 
+  const sha256 = await sha256File(uploadPath);
   await rename(uploadPath, filePath);
+  await writeSystemMetadata(binId, fileId, {
+    sha256,
+    committedAt: new Date().toISOString(),
+    ...(state.immutable ? { immutable: true } : {}),
+  });
   await rm(statePath, { force: true });
   return true;
 }
@@ -118,10 +170,15 @@ async function onFileExists(_req, res, args) {
     return notFound(res);
   }
 
+  const metadata = await readSystemMetadata(binId, fileId);
+  const stats = await stat(filePath);
+  res.setHeader('accept-ranges', 'bytes');
+  res.setHeader('content-length', stats.size);
+  if (metadata.sha256) res.setHeader('etag', getEtag(metadata.sha256));
   res.end();
 }
 
-async function onReadFile(_req, res, args) {
+async function onReadFile(req, res, args) {
   const { binId = '', fileId = '' } = args;
   const filePath = join(rootDir, binId, fileId);
   const metaPath = filePath + '.meta';
@@ -132,15 +189,43 @@ async function onReadFile(_req, res, args) {
 
   tryCatch(res, async () => {
     const meta = await readMetaFile(metaPath);
+    const system = await readSystemMetadata(binId, fileId);
     const stats = await stat(filePath);
 
     Object.entries(meta).forEach(([key, value]) => res.setHeader(key == 'type' ? 'content-type' : key, String(value)));
 
     res.setHeader('content-length', stats.size);
     res.setHeader('last-modified', new Date(stats.mtime).toString());
+    res.setHeader('accept-ranges', 'bytes');
+    if (system.sha256) res.setHeader('etag', getEtag(system.sha256));
 
+    const range = parseByteRange(req.headers.range, stats.size);
+    const ifRange = req.headers['if-range'];
+    const rangeAllowed = range && (!ifRange || ifRange === getEtag(system.sha256));
+    if (req.headers.range && !range) {
+      res.writeHead(416, { 'content-range': `bytes */${stats.size}` }).end();
+      return;
+    }
+    if (rangeAllowed) {
+      res.writeHead(206, {
+        'content-length': range.end - range.start + 1,
+        'content-range': `bytes ${range.start}-${range.end}/${stats.size}`,
+      });
+      createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+      return;
+    }
     createReadStream(filePath).pipe(res);
   });
+}
+
+function parseByteRange(value: string | undefined, size: number): ByteRange | null {
+  if (!value) return null;
+  const match = /^bytes=(\d+)-(\d*)$/.exec(value);
+  if (!match || size === 0) return null;
+  const start = Number(match[1]);
+  const requestedEnd = match[2] ? Number(match[2]) : size - 1;
+  const end = Math.min(requestedEnd, size - 1);
+  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start <= end && start < size ? { start, end } : null;
 }
 
 async function onReadUpload(_req, res, args) {
@@ -164,6 +249,7 @@ async function readMetadata(binId: string, fileId: string, baseUrl: string | URL
   try {
     const metaPath = filePath + '.meta';
     const meta = await readMetaFile(metaPath);
+    const system = await readSystemMetadata(binId, fileId);
     const stats = await stat(filePath);
 
     return {
@@ -173,6 +259,8 @@ async function readMetadata(binId: string, fileId: string, baseUrl: string | URL
       size: stats.size,
       name: meta.name || fileId,
       lastModified: new Date(stats.mtime).toISOString(),
+      ...(system.sha256 ? { sha256: system.sha256, etag: getEtag(system.sha256) } : {}),
+      ...(system.immutable ? { immutable: true } : {}),
       url: String(new URL('/' + ['f', binId, fileId].filter(Boolean).join('/'), baseUrl)),
     };
   } catch {
@@ -300,13 +388,16 @@ async function onCreateFile(req, res, args) {
     const payload = await readStream(req);
     const fileId = randomUUID();
     const meta = payload.toString('utf-8');
+    const metadata = meta ? JSON.parse(meta) : {};
+    const immutable = metadata?.immutable === true;
 
     if (meta) {
-      await writeFile(join(binPath, fileId + '.meta'), JSON.stringify(JSON.parse(meta)));
+      const { immutable: _immutable, ...userMetadata } = metadata;
+      await writeFile(join(binPath, fileId + '.meta'), JSON.stringify(userMetadata));
     }
 
     await writeFile(getUploadDataPath(binId, fileId), '');
-    await writeUploadState(binId, fileId, { total: null, ranges: [], pending: [], parts: [] });
+    await writeUploadState(binId, fileId, { total: null, ranges: [], pending: [], parts: [], immutable });
 
     res.setHeader('location', String(new URL(`/f/${binId}/${fileId}`, getProxyHost(req))));
     res.writeHead(201).end(`{"fileId": "${fileId}"}`);
@@ -318,10 +409,12 @@ async function onWriteFile(req, res, args) {
   const filePath = join(rootDir, binId, fileId);
   const uploadPath = getUploadDataPath(binId, fileId);
   const statePath = getUploadStatePath(binId, fileId);
+  const system = await readSystemMetadata(binId, fileId);
 
   if (!(binId && fileId && (existsSync(filePath) || existsSync(statePath)))) {
     return notFound(res);
   }
+  if (system.immutable) return res.writeHead(409).end('File is immutable');
 
   const contentRange = parseContentRange(req.headers['content-range']);
   if (req.headers['content-range'] && !contentRange) return badRequest(res, 'Invalid Content-Range header');
@@ -336,8 +429,10 @@ async function onWriteFile(req, res, args) {
     });
     writer.on('close', async () => {
       try {
+        const sha256 = await sha256File(temporaryPath);
         await rename(temporaryPath, filePath);
         await Promise.all([rm(uploadPath, { force: true }), rm(statePath, { force: true })]);
+        await writeSystemMetadata(binId, fileId, { sha256, committedAt: new Date().toISOString() });
         sendFileReference(req, res, binId, fileId);
       } catch {
         if (!res.headersSent) res.writeHead(500).end('Failed to write file');
@@ -418,9 +513,15 @@ async function onWriteFile(req, res, args) {
         current.parts.push({ ...range, digest });
         complete = isUploadComplete(current);
         if (complete) {
+          const sha256 = await sha256File(uploadPath);
           await writeUploadState(binId, fileId, current);
           await rename(uploadPath, filePath);
           await rm(statePath, { force: true });
+          await writeSystemMetadata(binId, fileId, {
+            sha256,
+            committedAt: new Date().toISOString(),
+            ...(current.immutable ? { immutable: true } : {}),
+          });
         } else {
           await writeUploadState(binId, fileId, current);
         }
@@ -449,7 +550,7 @@ async function readBin(binId: string) {
   }
 
   const allFiles = await readdir(binPath);
-  return allFiles.filter((f) => !f.endsWith('.meta') && !f.startsWith('.upload-'));
+  return allFiles.filter((f) => !f.endsWith('.meta') && !f.endsWith('.system') && !f.startsWith('.upload-'));
 }
 
 async function onReadBin(_req, res, args) {
@@ -519,9 +620,11 @@ async function onDeleteFile(_req, res, args) {
 
   const uploadPath = getUploadDataPath(binId, fileId);
   const uploadStatePath = getUploadStatePath(binId, fileId);
+  const system = await readSystemMetadata(binId, fileId);
   if (!(binId && fileId && (existsSync(filePath) || existsSync(uploadStatePath)))) {
     return notFound(res);
   }
+  if (system.immutable) return res.writeHead(409).end('File is immutable');
 
   tryCatch(res, async () => {
     await rm(filePath, { force: true });
@@ -530,6 +633,7 @@ async function onDeleteFile(_req, res, args) {
       await unlink(metaPath);
     }
     await Promise.all([rm(uploadPath, { force: true }), rm(uploadStatePath, { force: true })]);
+    await rm(getSystemMetadataPath(binId, fileId), { force: true });
 
     res.end('OK');
   });
@@ -768,7 +872,7 @@ async function onDownloadZip(_req, res, args) {
   tryCatch(res, async () => {
     const zip = new yazl.ZipFile();
     const allFiles = await readdir(binPath);
-    const files = allFiles.filter((f) => !f.endsWith('.meta') && !f.startsWith('.upload-'));
+    const files = allFiles.filter((f) => !f.endsWith('.meta') && !f.endsWith('.system') && !f.startsWith('.upload-'));
 
     res.setHeader('content-type', 'application/x-zip');
     res.setHeader('Content-Disposition', `attachment; filename="archive-${binId.slice(0, 8)}.zip"`);
@@ -900,6 +1004,38 @@ async function isBinAuthorized(req, binId: string) {
   return false;
 }
 
+async function cleanupAbandonedUploads() {
+  if (!Number.isFinite(uploadRetentionMs) || uploadRetentionMs <= 0) return;
+  const cutoff = Date.now() - uploadRetentionMs;
+  const bins = await readdir(rootDir, { withFileTypes: true });
+  await Promise.all(
+    bins
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const binPath = join(rootDir, entry.name);
+        const files = await readdir(binPath);
+        await Promise.all(
+          files
+            .filter((file) => file.startsWith('.upload-') && file.endsWith('.json'))
+            .map(async (file) => {
+              const statePath = join(binPath, file);
+              const stats = await stat(statePath).catch(() => null);
+              if (!stats || stats.mtimeMs >= cutoff) return;
+              const fileId = file.slice('.upload-'.length, -'.json'.length);
+              await withUploadLock(statePath, async () => {
+                const current = await stat(statePath).catch(() => null);
+                if (!current || current.mtimeMs >= cutoff) return;
+                await Promise.all([
+                  rm(statePath, { force: true }),
+                  rm(join(binPath, `.upload-${fileId}`), { force: true }),
+                ]);
+              });
+            }),
+        );
+      }),
+  );
+}
+
 function setUnlockCookie(req, res, binId: string) {
   const secure = getProxyHost(req).startsWith('https:') ? '; Secure' : '';
   res.setHeader(
@@ -987,6 +1123,10 @@ export function start(options: Options = {}) {
   if (!rootDir) {
     throw new Error('Cannot start without ROOT_DIR in environment.');
   }
+
+  cleanupAbandonedUploads().catch((error) => console.log(error));
+  const cleanupTimer = setInterval(() => cleanupAbandonedUploads().catch((error) => console.log(error)), uploadCleanupIntervalMs);
+  cleanupTimer.unref();
 
   return createServer((req, res) => {
     const _end = res.end;

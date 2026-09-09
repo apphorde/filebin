@@ -111,7 +111,12 @@ paths:
       operationId: fileExists
       security: [{ basicAuth: [] }, { unlockCookie: [] }]
       responses:
-        '200': { description: File exists }
+        '200':
+          description: File exists
+          headers:
+            Accept-Ranges: { schema: { type: string, example: bytes } }
+            Content-Length: { schema: { type: integer, minimum: 0 } }
+            ETag: { schema: { type: string } }
         '401': { $ref: '#/components/responses/Locked' }
         '404': { $ref: '#/components/responses/NotFound' }
     get:
@@ -122,11 +127,24 @@ paths:
       responses:
         '200':
           description: File content
+          headers:
+            Accept-Ranges: { schema: { type: string, example: bytes } }
+            ETag: { schema: { type: string } }
           content:
             application/octet-stream:
               schema: { type: string, format: binary }
         '401': { $ref: '#/components/responses/Locked' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '206':
+          description: Partial file content
+          headers:
+            Accept-Ranges: { schema: { type: string, example: bytes } }
+            Content-Range: { schema: { type: string, example: bytes 0-99/1000 } }
+            ETag: { schema: { type: string } }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '416': { description: Requested range cannot be satisfied }
     put:
       tags: [files]
       summary: Replace file content or write an upload part
@@ -414,6 +432,10 @@ components:
           description: File name or slash-separated relative path, such as photos/2026/image.jpg.
         type: { type: string }
         lastModified: { oneOf: [{ type: string, format: date-time }, { type: number }] }
+        immutable:
+          type: boolean
+          default: false
+          description: Commit the object as immutable after upload completion.
     Metadata:
       allOf:
         - $ref: '#/components/schemas/MetadataInput'
@@ -426,6 +448,9 @@ components:
             name: { type: string }
             lastModified: { type: string, format: date-time }
             url: { type: string, format: uri }
+            sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+            etag: { type: string }
+            immutable: { type: boolean }
     Password:
       type: object
       required: [password]
