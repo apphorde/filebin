@@ -549,14 +549,13 @@
              </button>
             <div>
               <template if="profile">
-                <button
+                <span
                    class="h-9 w-9 p-0 text-sm border-0 bg-transparent inline-flex items-center justify-center rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none md:w-auto md:px-2"
-                   on-click="signOut()"
-                   aria-label="Sign out"
+                    aria-label="Signed in as {{ profile?.name }}"
                 >
                   <lucide-icon icon="user-round" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-                  <span class="sr-only">Sign out {{ profile?.name }}</span>
-                </button>
+                  <span class="sr-only">Signed in as {{ profile?.name }}</span>
+                </span>
               </template>
               <template if="!profile">
                 <button
