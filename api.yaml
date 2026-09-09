@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: FileBin API
-  description: File storage with virtual folders and optional password-protected bins.
+  description: File storage with virtual folders, temporary public bins, and private authenticated bins.
   license:
     name: MIT
   version: 1.2.0
@@ -16,6 +16,7 @@ paths:
     post:
       tags: [bins]
       summary: Create a bin
+      description: Anonymous callers create a public temporary bin, limited to 5 MiB per file and 50 completed files. It is deleted after the configured inactivity period measured from its last completed upload, and cannot be claimed. Authenticated callers create a private owned bin.
       operationId: createBin
       responses:
         '201':

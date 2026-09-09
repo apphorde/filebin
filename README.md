@@ -50,6 +50,18 @@ File metadata names may use slash-separated relative paths (for example,
 `photos/2026/image.jpg`). Folder paths are retained when importing or exporting
 ZIP archives. The web UI also supports selecting and uploading a directory.
 
+### Public and private bins
+
+Bins created without signing in are public, temporary bins. They are not
+claimable and are deleted after a period without completed uploads. The timer is
+reset only when a file upload completes, not when a bin is read or modified.
+Public bins are limited to 5 MiB per file and 50 completed files.
+
+Sign in before creating a bin to create a private bin. Private bins are owned
+by the authenticated user and are the basis for future sharing permissions and
+storage plans. A public bin cannot be converted to a private bin, which avoids
+granting ownership based only on knowledge of a bin ID.
+
 ### Large, resumable uploads
 
 `createFile()` returns an incomplete upload session. For ordinary uploads, use
@@ -125,3 +137,5 @@ capability, so protect a bin immediately after creating it when this matters.
 | PORT                  | Number. HTTP port                                 |
 | AUTH_ISSUER           | Optional OIDC provider URL                        |
 | FILEBIN_OIDC_CLIENT_ID | Optional OIDC client ID, defaults to `filebin`   |
+| PUBLIC_BIN_RETENTION_HOURS | Public-bin inactivity period after the last completed upload, defaults to 168 |
+| PUBLIC_BIN_CLEANUP_TOKEN | Bearer token accepted by the external cleanup scheduler endpoint |
