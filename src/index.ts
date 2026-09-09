@@ -11,7 +11,7 @@ import { load } from 'js-yaml';
 import { promisify } from 'node:util';
 
 const rootDir = process.env.ROOT_DIR;
-const authIssuer = process.env.AUTH_ISSUER;
+const authIssuer = process.env.AUTH_ISSUER || 'https://auth.api.apphor.de';
 const authClientPromise = fetch(`${authIssuer}/node.mjs`)
   .then((response) => response.text())
   .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
@@ -298,10 +298,14 @@ async function readAuthState(req) {
     const profile = auth && await auth.getSessionProfile(req);
     if (!profile) return { profile: null, binList: [] };
 
-    const cookie = auth.getSessionCookie(req);
-    const response = await fetch(new URL('/properties/binList', authIssuer), { headers: { cookie } });
-    const property: any = response.ok ? await response.json() : null;
-    return { profile, binList: property?.value || [] };
+    try {
+      const cookie = auth.getSessionCookie(req);
+      const response = await fetch(new URL('/properties/binList', authIssuer), { headers: { cookie } });
+      const property: any = response.ok ? await response.json() : null;
+      return { profile, binList: property?.value || [] };
+    } catch {
+      return { profile, binList: [] };
+    }
   } catch {
     return { profile: null, binList: [] };
   }

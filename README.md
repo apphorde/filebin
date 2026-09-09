@@ -119,7 +119,9 @@ capability, so protect a bin immediately after creating it when this matters.
 
 ## Environment variables
 
-| env      | description                                       |
-| -------- | ------------------------------------------------- |
-| ROOT_DIR | String. Path to a folder where all data is stored |
-| PORT     | Number. HTTP port                                 |
+| env                   | description                                       |
+| --------------------- | ------------------------------------------------- |
+| ROOT_DIR              | String. Path to a folder where all data is stored |
+| PORT                  | Number. HTTP port                                 |
+| AUTH_ISSUER           | Optional OIDC provider URL                        |
+| FILEBIN_OIDC_CLIENT_ID | Optional OIDC client ID, defaults to `filebin`   |

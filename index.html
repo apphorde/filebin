@@ -193,6 +193,11 @@
           const partialFiles = ref([]);
 
           onInit(async () => {
+            if (!profile.value) {
+              const response = await fetch('/auth/profile');
+              if (response.ok) profile.value = await response.json();
+            }
+
             if (binId.value) {
               const status = await getBinLock(binId.value);
               protectedBin.value = status.locked;
