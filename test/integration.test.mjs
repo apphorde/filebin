@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, truncate, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -260,6 +260,22 @@ test('file parts require a matching SHA-256 digest', async () => {
     ranges: [],
     complete: false,
   });
+});
+
+test('startup cleanup removes stale incomplete uploads', async () => {
+  const binId = await createBin();
+  const fileId = await createFile(binId);
+  const uploadPath = join(rootDir, binId, `.upload-${fileId}`);
+  const statePath = uploadPath + '.json';
+  const stale = new Date(Date.now() - 73 * 60 * 60 * 1000);
+  await utimes(statePath, stale, stale);
+
+  const cleanupServer = start({ port: 0 });
+  await new Promise((resolve) => cleanupServer.once('listening', resolve));
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  await new Promise((resolve, reject) => cleanupServer.close((error) => (error ? reject(error) : resolve())));
+  await assert.rejects(stat(uploadPath));
+  await assert.rejects(stat(statePath));
 });
 
 test('completed files expose a checksum, support ranges, and can be immutable', async () => {
