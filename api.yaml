@@ -65,6 +65,26 @@ paths:
                 type: array
                 items: { type: string, format: uuid }
         '401': { description: No authenticated session }
+  /admin/cleanup:
+    post:
+      tags: [bins]
+      summary: Remove expired public bins
+      description: For external schedulers. Deletes only public, unclaimed bins whose last completed upload is older than `PUBLIC_BIN_RETENTION_HOURS`.
+      operationId: cleanupPublicBins
+      security: [{ cleanupToken: [] }]
+      responses:
+        '200':
+          description: Completed cleanup
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted:
+                    type: array
+                    items: { type: string, format: uuid }
+        '401': { description: Missing or invalid scheduler token }
   /bin:
     post:
       tags: [bins]
@@ -407,6 +427,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 components:
   securitySchemes:
+    cleanupToken:
+      type: http
+      scheme: bearer
+      description: Value of PUBLIC_BIN_CLEANUP_TOKEN.
     basicAuth:
       type: http
       scheme: basic

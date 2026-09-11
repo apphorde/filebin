@@ -15,6 +15,8 @@ const authIssuer = process.env.AUTH_PROVIDER || 'https://auth.api.apphor.de';
 const oidcClientId = process.env.OIDC_CLIENT_ID || 'filebin';
 const oidcClientSecret = process.env.OIDC_CLIENT_SECRET;
 const databaseModuleUrl = process.env.DATABASE_MODULE_URL || 'https://98b9a8a0020aa2b56238600dc3a7e54fac82b63e.db.apphor.de/index.mjs';
+const publicBinRetentionMs = Number(process.env.PUBLIC_BIN_RETENTION_HOURS || 168) * 60 * 60 * 1000;
+const publicBinCleanupToken = process.env.PUBLIC_BIN_CLEANUP_TOKEN;
 const authClientPromise = fetch(`${authIssuer}/node.mjs`)
   .then((response) => response.text())
   .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
@@ -40,6 +42,31 @@ const databasePromise = fetch(databaseModuleUrl)
         bin_id TEXT NOT NULL UNIQUE,
         created_at INTEGER NOT NULL,
         PRIMARY KEY (issuer, subject, bin_id)
+      );
+      CREATE TABLE IF NOT EXISTS storage_bins (
+        id TEXT PRIMARY KEY,
+        visibility TEXT NOT NULL,
+        owner_issuer TEXT,
+        owner_subject TEXT,
+        created_at INTEGER NOT NULL,
+        last_completed_upload_at INTEGER,
+        imported_at INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS storage_files (
+        bin_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        metadata TEXT NOT NULL,
+        system_metadata TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (bin_id, id)
+      );
+      CREATE TABLE IF NOT EXISTS storage_uploads (
+        bin_id TEXT NOT NULL,
+        file_id TEXT NOT NULL,
+        state TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (bin_id, file_id)
       );
       CREATE TABLE IF NOT EXISTS audit_events (
         id INTEGER PRIMARY KEY,
@@ -362,16 +389,74 @@ async function audit(req, action: string, target: string) {
   if (database) await database.run('INSERT INTO audit_events (actor_subject, action, target, created_at) VALUES (?, ?, ?, ?)', [principal?.subject || null, action, target, Date.now()]);
 }
 
+async function importDiskCatalog() {
+  const database = await getDatabase();
+  if (!database || !rootDir || !existsSync(rootDir)) return;
+  const now = Date.now();
+  const bins = await readdir(rootDir, { withFileTypes: true });
+  for (const entry of bins.filter((entry) => entry.isDirectory())) {
+    const binPath = join(rootDir, entry.name);
+    const binStats = await stat(binPath);
+    const files = await readdir(binPath);
+    const completed = files.filter((file) => !file.endsWith('.meta') && !file.endsWith('.system') && !file.startsWith('.upload-'));
+    const uploadTimes = await Promise.all(completed.map(async (file) => (await stat(join(binPath, file))).mtimeMs));
+    const lastCompletedUploadAt = uploadTimes.length ? Math.max(...uploadTimes) : null;
+    await database.run(
+      'INSERT OR IGNORE INTO storage_bins (id, visibility, created_at, last_completed_upload_at, imported_at) VALUES (?, ?, ?, ?, ?)',
+      [entry.name, 'public', binStats.birthtimeMs || binStats.mtimeMs, lastCompletedUploadAt, now],
+    );
+    for (const fileId of completed) {
+      const filePath = join(binPath, fileId);
+      const [metadata, systemMetadata, fileStats] = await Promise.all([
+        readMetaFile(`${filePath}.meta`),
+        readSystemMetadata(entry.name, fileId),
+        stat(filePath),
+      ]);
+      await database.run(
+        'INSERT OR REPLACE INTO storage_files (bin_id, id, metadata, system_metadata, size, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [entry.name, fileId, JSON.stringify(metadata), JSON.stringify(systemMetadata), fileStats.size, fileStats.mtimeMs],
+      );
+    }
+    for (const stateFile of files.filter((file) => file.startsWith('.upload-') && file.endsWith('.json'))) {
+      const fileId = stateFile.slice('.upload-'.length, -'.json'.length);
+      const statePath = join(binPath, stateFile);
+      const [state, stateStats] = await Promise.all([readFile(statePath, 'utf8'), stat(statePath)]);
+      await database.run(
+        'INSERT OR REPLACE INTO storage_uploads (bin_id, file_id, state, updated_at) VALUES (?, ?, ?, ?)',
+        [entry.name, fileId, state, stateStats.mtimeMs],
+      );
+    }
+  }
+}
+
+async function recordCompletedFile(binId: string, fileId: string) {
+  const database = await getDatabase();
+  if (!database) return;
+  const filePath = join(rootDir, binId, fileId);
+  const [metadata, systemMetadata, fileStats] = await Promise.all([
+    readMetaFile(`${filePath}.meta`),
+    readSystemMetadata(binId, fileId),
+    stat(filePath),
+  ]);
+  const now = Date.now();
+  await database.run(
+    'INSERT OR REPLACE INTO storage_files (bin_id, id, metadata, system_metadata, size, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [binId, fileId, JSON.stringify(metadata), JSON.stringify(systemMetadata), fileStats.size, fileStats.mtimeMs],
+  );
+  await database.run('UPDATE storage_bins SET last_completed_upload_at = ? WHERE id = ?', [now, binId]);
+  await database.run('DELETE FROM storage_uploads WHERE bin_id = ? AND file_id = ?', [binId, fileId]);
+}
+
 async function onAuthProfile(req, res) {
   const profile = await getSessionProfile(req);
-  if (!profile) return unauthorized(res);
+  if (!profile) return unauthenticated(res);
   res.writeHead(200, jsonHeaders).end(JSON.stringify(profile));
 }
 
 async function onAuthBins(req, res) {
   const principal = await getPrincipal(req);
   const database = await getDatabase();
-  if (!principal || !database) return unauthorized(res);
+  if (!principal || !database) return unauthenticated(res);
   const bins = await database.all('SELECT bin_id FROM user_bins WHERE issuer = ? AND subject = ? ORDER BY created_at DESC', [principal.issuer, principal.subject]);
   res.writeHead(200, jsonHeaders).end(JSON.stringify(bins.map((bin) => bin.bin_id)));
 }
@@ -410,7 +495,7 @@ async function onAuthCallback(req, res) {
   const [state, signature] = String(cookie || '').split('.');
   const expected = Buffer.from(sign(state || ''));
   const actual = Buffer.from(signature || '');
-  if (!auth || !oidcClientSecret || !state || actual.length !== expected.length || !timingSafeEqual(actual, expected)) return unauthorized(res);
+  if (!auth || !oidcClientSecret || !state || actual.length !== expected.length || !timingSafeEqual(actual, expected)) return unauthenticated(res);
   const saved = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
   const url = new URL(req.url, getProxyHost(req));
   if (saved.expires < Date.now() || url.searchParams.get('state') !== saved.state || !url.searchParams.get('code')) return unauthorized(res);
@@ -516,6 +601,7 @@ async function onWriteFile(req, res, args) {
         await rename(temporaryPath, filePath);
         await Promise.all([rm(uploadPath, { force: true }), rm(statePath, { force: true })]);
         await writeSystemMetadata(binId, fileId, { sha256, committedAt: new Date().toISOString() });
+        await recordCompletedFile(binId, fileId);
         sendFileReference(req, res, binId, fileId);
       } catch {
         if (!res.headersSent) res.writeHead(500).end('Failed to write file');
@@ -609,7 +695,10 @@ async function onWriteFile(req, res, args) {
           await writeUploadState(binId, fileId, current);
         }
       });
-      if (complete) sendFileReference(req, res, binId, fileId);
+      if (complete) {
+        await recordCompletedFile(binId, fileId);
+        sendFileReference(req, res, binId, fileId);
+      }
       else res.writeHead(202, jsonHeaders).end(JSON.stringify({ complete: false }));
     } catch {
       if (!res.headersSent) res.writeHead(500).end('Failed to finalize upload');
@@ -656,6 +745,10 @@ async function onCreateBin(req, res) {
     await ensureDir(join(rootDir, binId));
     const principal = await getPrincipal(req);
     const database = await getDatabase();
+    if (database) {
+      const now = Date.now();
+      await database.run('INSERT INTO storage_bins (id, visibility, owner_issuer, owner_subject, created_at) VALUES (?, ?, ?, ?, ?)', [binId, principal ? 'private' : 'public', principal?.issuer || null, principal?.subject || null, now]);
+    }
     if (principal && database) {
       await database.run('INSERT INTO user_bins (issuer, subject, bin_id, created_at) VALUES (?, ?, ?, ?)', [principal.issuer, principal.subject, binId, Date.now()]);
       await audit(req, 'bin.create', binId);
@@ -994,6 +1087,10 @@ function unauthorized(res) {
   );
 }
 
+function unauthenticated(res) {
+  res.writeHead(401, jsonHeaders).end(JSON.stringify({ error: 'Authentication required' }));
+}
+
 async function tryCatch(res, fn) {
   try {
     await fn();
@@ -1125,6 +1222,32 @@ async function cleanupAbandonedUploads() {
   );
 }
 
+async function cleanupExpiredPublicBins() {
+  const database = await getDatabase();
+  if (!database || !Number.isFinite(publicBinRetentionMs) || publicBinRetentionMs <= 0) return [];
+  await importDiskCatalog();
+  const cutoff = Date.now() - publicBinRetentionMs;
+  const bins = await database.all(
+    "SELECT id FROM storage_bins WHERE visibility = 'public' AND owner_subject IS NULL AND last_completed_upload_at IS NOT NULL AND last_completed_upload_at < ?",
+    [cutoff],
+  );
+  for (const { id } of bins) {
+    await rm(join(rootDir, id), { recursive: true, force: true });
+    await rm(join(rootDir, `${id}.meta`), { force: true });
+    await database.run('DELETE FROM storage_uploads WHERE bin_id = ?', [id]);
+    await database.run('DELETE FROM storage_files WHERE bin_id = ?', [id]);
+    await database.run('DELETE FROM storage_bins WHERE id = ?', [id]);
+  }
+  return bins.map((bin) => bin.id);
+}
+
+async function onPublicBinCleanup(req, res) {
+  const token = String(req.headers.authorization || '').replace(/^Bearer /, '');
+  if (!publicBinCleanupToken || token !== publicBinCleanupToken) return unauthenticated(res);
+  const deleted = await cleanupExpiredPublicBins();
+  res.writeHead(200, jsonHeaders).end(JSON.stringify({ deleted }));
+}
+
 function setUnlockCookie(req, res, binId: string) {
   const secure = getProxyHost(req).startsWith('https:') ? '; Secure' : '';
   res.setHeader(
@@ -1176,6 +1299,7 @@ const match = router({
   'GET /auth/login': onAuthLogin,
   'GET /auth/callback': onAuthCallback,
   'POST /auth/logout': onAuthLogout,
+  'POST /admin/cleanup': onPublicBinCleanup,
   'GET /b/:binId': onGetUI,
   'GET /manifest.webmanifest': onGetManifest,
   'GET /icon.svg': onGetIcon,
@@ -1214,6 +1338,7 @@ export function start(options: Options = {}) {
   }
 
   cleanupAbandonedUploads().catch((error) => console.log(error));
+  importDiskCatalog().catch((error) => console.log(error));
   const cleanupTimer = setInterval(() => cleanupAbandonedUploads().catch((error) => console.log(error)), uploadCleanupIntervalMs);
   cleanupTimer.unref();
 
