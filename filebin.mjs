@@ -169,13 +169,14 @@ export async function writeFile(bin, file, content) {
  * @returns {Promise<{ complete: false } | { id: string, bin: string, url: string }>}
  */
 export async function writeFilePart(bin, file, content, start, total) {
-  const bytes = typeof content === 'string'
-    ? new TextEncoder().encode(content)
-    : content instanceof Blob
-      ? new Uint8Array(await content.arrayBuffer())
-      : ArrayBuffer.isView(content)
-        ? new Uint8Array(content.buffer, content.byteOffset, content.byteLength)
-        : new Uint8Array(content);
+  const bytes =
+    typeof content === 'string'
+      ? new TextEncoder().encode(content)
+      : content instanceof Blob
+        ? new Uint8Array(await content.arrayBuffer())
+        : ArrayBuffer.isView(content)
+          ? new Uint8Array(content.buffer, content.byteOffset, content.byteLength)
+          : new Uint8Array(content);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   const digestValue = base64(new Uint8Array(digest));
   const end = start + bytes.byteLength - 1;
@@ -249,7 +250,7 @@ export async function setBinPassword(bin, password) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ password }),
   });
-  return req.ok || Promise.reject(new Error(await req.text() || 'Failed to protect bin'));
+  return req.ok || Promise.reject(new Error((await req.text()) || 'Failed to protect bin'));
 }
 
 export async function removeBinPassword(bin) {

@@ -140,13 +140,13 @@ capability, so protect a bin immediately after creating it when this matters.
 
 ## Environment variables
 
-| env                   | description                                       |
-| --------------------- | ------------------------------------------------- |
-| ROOT_DIR              | String. Path to a folder where all data is stored |
-| PORT                  | Number. HTTP port                                 |
-| AUTH_PROVIDER         | OIDC provider URL, defaults to `https://auth.api.apphor.de` |
-| OIDC_CLIENT_ID        | OIDC client ID, defaults to `filebin`            |
-| OIDC_CLIENT_SECRET    | OIDC client secret used at `/auth/callback`       |
-| DATABASE_URL          | Private SQLite-over-HTTPS ESM module URL          |
+| env                        | description                                                                   |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| ROOT_DIR                   | String. Path to a folder where all data is stored                             |
+| PORT                       | Number. HTTP port                                                             |
+| AUTH_PROVIDER              | Required OIDC provider URL                                                    |
+| OIDC_CLIENT_ID             | Required OIDC client ID                                                       |
+| OIDC_CLIENT_SECRET         | OIDC client secret used at `/auth/callback`                                   |
+| DATABASE_URL               | Private SQLite-over-HTTPS ESM module URL                                      |
 | PUBLIC_BIN_RETENTION_HOURS | Public-bin inactivity period after the last completed upload, defaults to 168 |
-| PUBLIC_BIN_CLEANUP_TOKEN | Bearer token accepted by the external cleanup scheduler endpoint |
+| PUBLIC_BIN_CLEANUP_TOKEN   | Bearer token accepted by the external cleanup scheduler endpoint              |

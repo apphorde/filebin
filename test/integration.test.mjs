@@ -462,7 +462,10 @@ test('renaming a locked bin moves protection and issues a cookie for the new ID'
 
 test('invalid and missing resources return contract status codes', async () => {
   const binId = await createBin();
-  assert.equal((await fetch(`${baseUrl}/bin/${binId}`, { method: 'PATCH', body: JSON.stringify({ newId: '../bad' }) })).status, 400);
+  assert.equal(
+    (await fetch(`${baseUrl}/bin/${binId}`, { method: 'PATCH', body: JSON.stringify({ newId: '../bad' }) })).status,
+    400,
+  );
   assert.equal((await fetch(`${baseUrl}/bin/missing`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/f/missing`, { method: 'POST' })).status, 404);
   assert.equal((await fetch(`${baseUrl}/meta/${binId}/missing`)).status, 404);

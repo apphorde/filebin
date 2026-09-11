@@ -1,6 +1,13 @@
 import type { IncomingMessage } from 'node:http';
 import { createServer } from 'node:http';
-import { createHash, createHmac, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  randomUUID,
+  scrypt as scryptCallback,
+  timingSafeEqual,
+} from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeFile, readFile, mkdir, readdir, stat, rm, rename, unlink } from 'node:fs/promises';
@@ -11,25 +18,31 @@ import { load } from 'js-yaml';
 import { promisify } from 'node:util';
 
 const rootDir = process.env.ROOT_DIR;
-const authIssuer = process.env.AUTH_PROVIDER || 'https://auth.api.apphor.de';
-const oidcClientId = process.env.OIDC_CLIENT_ID || 'filebin';
+const authIssuer = process.env.AUTH_PROVIDER;
+const oidcClientId = process.env.OIDC_CLIENT_ID;
 const oidcClientSecret = process.env.OIDC_CLIENT_SECRET;
 const databaseModuleUrl = process.env.DATABASE_URL;
 const publicBinRetentionMs = Number(process.env.PUBLIC_BIN_RETENTION_HOURS || 168) * 60 * 60 * 1000;
 const publicBinCleanupToken = process.env.PUBLIC_BIN_CLEANUP_TOKEN;
-const authClientPromise = fetch(`${authIssuer}/node.mjs`)
-  .then((response) => response.text())
-  .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
-  .then(({ createAuthClient }) => createAuthClient({
-    issuer: authIssuer,
-    clientId: oidcClientId,
-  }))
-  .catch(() => null);
-const databasePromise = databaseModuleUrl ? fetch(databaseModuleUrl)
-  .then((response) => response.text())
-  .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
-  .then(async (database) => {
-    await database.exec(`
+const authClientPromise =
+  authIssuer && oidcClientId
+    ? fetch(`${authIssuer}/node.mjs`)
+        .then((response) => response.text())
+        .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
+        .then(({ createAuthClient }) =>
+          createAuthClient({
+            issuer: authIssuer,
+            clientId: oidcClientId,
+          }),
+        )
+        .catch(() => null)
+    : Promise.resolve(null);
+const databasePromise = databaseModuleUrl
+  ? fetch(databaseModuleUrl)
+      .then((response) => response.text())
+      .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
+      .then(async (database) => {
+        await database.exec(`
       CREATE TABLE IF NOT EXISTS oidc_sessions (
         id TEXT PRIMARY KEY,
         profile TEXT NOT NULL,
@@ -76,9 +89,10 @@ const databasePromise = databaseModuleUrl ? fetch(databaseModuleUrl)
         created_at INTEGER NOT NULL
       );
     `);
-    return database;
-  })
-  .catch(() => null) : Promise.resolve(null);
+        return database;
+      })
+      .catch(() => null)
+  : Promise.resolve(null);
 const jsonHeaders = { 'content-type': 'application/json' };
 const lockFileName = '.bin.meta';
 const sessionSecret = randomBytes(32);
@@ -89,7 +103,13 @@ const uploadCleanupIntervalMs = Number(process.env.UPLOAD_CLEANUP_INTERVAL_MINUT
 
 type ByteRange = { start: number; end: number };
 type UploadPart = ByteRange & { digest: string };
-type UploadState = { total: number | null; ranges: ByteRange[]; pending: ByteRange[]; parts: UploadPart[]; immutable?: boolean };
+type UploadState = {
+  total: number | null;
+  ranges: ByteRange[];
+  pending: ByteRange[];
+  parts: UploadPart[];
+  immutable?: boolean;
+};
 type SystemMetadata = { immutable?: boolean; committedAt?: string; sha256?: string };
 
 function getUploadDataPath(binId: string, fileId: string) {
@@ -124,17 +144,24 @@ function parseContentRange(value: string | undefined) {
   if (!match) return null;
   const [, start, end, total] = match;
   const range = { start: Number(start), end: Number(end), total: Number(total) };
-  return Number.isSafeInteger(range.start) && Number.isSafeInteger(range.end) && Number.isSafeInteger(range.total) &&
-    range.start <= range.end && range.end < range.total ? range : null;
+  return Number.isSafeInteger(range.start) &&
+    Number.isSafeInteger(range.end) &&
+    Number.isSafeInteger(range.total) &&
+    range.start <= range.end &&
+    range.end < range.total
+    ? range
+    : null;
 }
 
 function mergeRanges(ranges: ByteRange[]) {
-  return [...ranges].sort((a, b) => a.start - b.start).reduce<ByteRange[]>((merged, range) => {
-    const last = merged.at(-1);
-    if (last && range.start <= last.end + 1) last.end = Math.max(last.end, range.end);
-    else merged.push({ ...range });
-    return merged;
-  }, []);
+  return [...ranges]
+    .sort((a, b) => a.start - b.start)
+    .reduce<ByteRange[]>((merged, range) => {
+      const last = merged.at(-1);
+      if (last && range.start <= last.end + 1) last.end = Math.max(last.end, range.end);
+      else merged.push({ ...range });
+      return merged;
+    }, []);
 }
 
 function rangesOverlap(ranges: ByteRange[], range: ByteRange) {
@@ -142,7 +169,12 @@ function rangesOverlap(ranges: ByteRange[], range: ByteRange) {
 }
 
 function isUploadComplete(state: UploadState) {
-  return state.total !== null && state.ranges.length === 1 && state.ranges[0].start === 0 && state.ranges[0].end === state.total - 1;
+  return (
+    state.total !== null &&
+    state.ranges.length === 1 &&
+    state.ranges[0].start === 0 &&
+    state.ranges[0].end === state.total - 1
+  );
 }
 
 async function readUploadState(binId: string, fileId: string): Promise<UploadState | null> {
@@ -284,7 +316,9 @@ function parseByteRange(value: string | undefined, size: number): ByteRange | nu
   const start = Number(match[1]);
   const requestedEnd = match[2] ? Number(match[2]) : size - 1;
   const end = Math.min(requestedEnd, size - 1);
-  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start <= end && start < size ? { start, end } : null;
+  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start <= end && start < size
+    ? { start, end }
+    : null;
 }
 
 async function onReadUpload(_req, res, args) {
@@ -374,7 +408,9 @@ async function getSessionProfile(req) {
   const actual = Buffer.from(signature || '');
   if (!id || actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
   const database = await getDatabase();
-  const session = database && await database.get('SELECT profile FROM oidc_sessions WHERE id = ? AND expires_at > ?', [id, Date.now()]);
+  const session =
+    database &&
+    (await database.get('SELECT profile FROM oidc_sessions WHERE id = ? AND expires_at > ?', [id, Date.now()]));
   return session ? JSON.parse(session.profile) : null;
 }
 
@@ -386,7 +422,13 @@ async function getPrincipal(req) {
 async function audit(req, action: string, target: string) {
   const principal = await getPrincipal(req);
   const database = await getDatabase();
-  if (database) await database.run('INSERT INTO audit_events (actor_subject, action, target, created_at) VALUES (?, ?, ?, ?)', [principal?.subject || null, action, target, Date.now()]);
+  if (database)
+    await database.run('INSERT INTO audit_events (actor_subject, action, target, created_at) VALUES (?, ?, ?, ?)', [
+      principal?.subject || null,
+      action,
+      target,
+      Date.now(),
+    ]);
 }
 
 async function importDiskCatalog() {
@@ -398,7 +440,9 @@ async function importDiskCatalog() {
     const binPath = join(rootDir, entry.name);
     const binStats = await stat(binPath);
     const files = await readdir(binPath);
-    const completed = files.filter((file) => !file.endsWith('.meta') && !file.endsWith('.system') && !file.startsWith('.upload-'));
+    const completed = files.filter(
+      (file) => !file.endsWith('.meta') && !file.endsWith('.system') && !file.startsWith('.upload-'),
+    );
     const uploadTimes = await Promise.all(completed.map(async (file) => (await stat(join(binPath, file))).mtimeMs));
     const lastCompletedUploadAt = uploadTimes.length ? Math.max(...uploadTimes) : null;
     await database.run(
@@ -414,7 +458,14 @@ async function importDiskCatalog() {
       ]);
       await database.run(
         'INSERT OR REPLACE INTO storage_files (bin_id, id, metadata, system_metadata, size, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [entry.name, fileId, JSON.stringify(metadata), JSON.stringify(systemMetadata), fileStats.size, fileStats.mtimeMs],
+        [
+          entry.name,
+          fileId,
+          JSON.stringify(metadata),
+          JSON.stringify(systemMetadata),
+          fileStats.size,
+          fileStats.mtimeMs,
+        ],
       );
     }
     for (const stateFile of files.filter((file) => file.startsWith('.upload-') && file.endsWith('.json'))) {
@@ -457,7 +508,10 @@ async function onAuthBins(req, res) {
   const principal = await getPrincipal(req);
   const database = await getDatabase();
   if (!principal || !database) return unauthenticated(res);
-  const bins = await database.all('SELECT bin_id FROM user_bins WHERE issuer = ? AND subject = ? ORDER BY created_at DESC', [principal.issuer, principal.subject]);
+  const bins = await database.all(
+    'SELECT bin_id FROM user_bins WHERE issuer = ? AND subject = ? ORDER BY created_at DESC',
+    [principal.issuer, principal.subject],
+  );
   res.writeHead(200, jsonHeaders).end(JSON.stringify(bins.map((bin) => bin.bin_id)));
 }
 
@@ -466,7 +520,12 @@ async function readAuthState(req) {
     const profile = await getSessionProfile(req);
     if (!profile) return { profile: null, binList: [] };
     const database = await getDatabase();
-    const bins = database ? await database.all('SELECT bin_id FROM user_bins WHERE issuer = ? AND subject = ? ORDER BY created_at DESC', [profile.iss || authIssuer, profile.sub]) : [];
+    const bins = database
+      ? await database.all('SELECT bin_id FROM user_bins WHERE issuer = ? AND subject = ? ORDER BY created_at DESC', [
+          profile.iss || authIssuer,
+          profile.sub,
+        ])
+      : [];
     return { profile, binList: bins.map((bin) => bin.bin_id) };
   } catch {
     return { profile: null, binList: [] };
@@ -484,7 +543,9 @@ async function onAuthLogin(req, res) {
   if (url.origin !== origin) url.href = `${origin}/app`;
   const redirectUri = `${origin}/auth/callback`;
   const authorization = auth.createAuthorizationRequest({ redirectUri });
-  const state = Buffer.from(JSON.stringify({ ...authorization, url: String(url), expires: Date.now() + 10 * 60 * 1000 })).toString('base64url');
+  const state = Buffer.from(
+    JSON.stringify({ ...authorization, url: String(url), expires: Date.now() + 10 * 60 * 1000 }),
+  ).toString('base64url');
   setCookie(req, res, 'filebin_oidc', `${state}.${sign(state)}`, 600);
   res.writeHead(302, { location: authorization.url }).end();
 }
@@ -495,16 +556,28 @@ async function onAuthCallback(req, res) {
   const [state, signature] = String(cookie || '').split('.');
   const expected = Buffer.from(sign(state || ''));
   const actual = Buffer.from(signature || '');
-  if (!auth || !oidcClientSecret || !state || actual.length !== expected.length || !timingSafeEqual(actual, expected)) return unauthenticated(res);
+  if (!auth || !oidcClientSecret || !state || actual.length !== expected.length || !timingSafeEqual(actual, expected))
+    return unauthenticated(res);
   const saved = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
   const url = new URL(req.url, getProxyHost(req));
-  if (saved.expires < Date.now() || url.searchParams.get('state') !== saved.state || !url.searchParams.get('code')) return unauthorized(res);
-  const tokens = await auth.exchangeCode({ code: url.searchParams.get('code'), codeVerifier: saved.codeVerifier, redirectUri: `${url.origin}/auth/callback`, clientSecret: oidcClientSecret });
+  if (saved.expires < Date.now() || url.searchParams.get('state') !== saved.state || !url.searchParams.get('code'))
+    return unauthorized(res);
+  const tokens = await auth.exchangeCode({
+    code: url.searchParams.get('code'),
+    codeVerifier: saved.codeVerifier,
+    redirectUri: `${url.origin}/auth/callback`,
+    clientSecret: oidcClientSecret,
+  });
   const profile = await auth.getProfile(tokens.access_token);
   const id = randomUUID();
   const database = await getDatabase();
   if (!database) return res.writeHead(503).end('Database unavailable');
-  await database.run('INSERT INTO oidc_sessions (id, profile, expires_at, created_at) VALUES (?, ?, ?, ?)', [id, JSON.stringify(profile), Date.now() + (Number(tokens.expires_in) || 3600) * 1000, Date.now()]);
+  await database.run('INSERT INTO oidc_sessions (id, profile, expires_at, created_at) VALUES (?, ?, ?, ?)', [
+    id,
+    JSON.stringify(profile),
+    Date.now() + (Number(tokens.expires_in) || 3600) * 1000,
+    Date.now(),
+  ]);
   setCookie(req, res, 'filebin_session', `${id}.${sign(id)}`, Number(tokens.expires_in) || 3600);
   setCookie(req, res, 'filebin_oidc', '', 0);
   await audit(req, 'auth.login', profile.sub);
@@ -560,7 +633,8 @@ async function onCreateFile(req, res, args) {
     const immutable = metadata?.immutable === true;
 
     if (meta) {
-      const { immutable: _immutable, ...userMetadata } = metadata;
+      const userMetadata = { ...metadata };
+      delete userMetadata.immutable;
       await writeFile(join(binPath, fileId + '.meta'), JSON.stringify(userMetadata));
     }
 
@@ -622,7 +696,9 @@ async function onWriteFile(req, res, args) {
       state = null;
       return;
     }
-    duplicate = state.parts.some((part) => part.start === range.start && part.end === range.end && part.digest === digest);
+    duplicate = state.parts.some(
+      (part) => part.start === range.start && part.end === range.end && part.digest === digest,
+    );
     if (rangesOverlap([...state.ranges, ...state.pending], range) && !duplicate) {
       state = null;
       return;
@@ -655,12 +731,13 @@ async function onWriteFile(req, res, args) {
   });
   req.pipe(writer);
 
-  const discardRange = async () => withUploadLock(statePath, async () => {
-    const current = await readUploadState(binId, fileId);
-    if (!current) return;
-    current.pending = current.pending.filter((item) => item.start !== range.start || item.end !== range.end);
-    await writeUploadState(binId, fileId, current);
-  });
+  const discardRange = async () =>
+    withUploadLock(statePath, async () => {
+      const current = await readUploadState(binId, fileId);
+      if (!current) return;
+      current.pending = current.pending.filter((item) => item.start !== range.start || item.end !== range.end);
+      await writeUploadState(binId, fileId, current);
+    });
 
   writer.on('error', async () => {
     await discardRange();
@@ -698,8 +775,7 @@ async function onWriteFile(req, res, args) {
       if (complete) {
         await recordCompletedFile(binId, fileId);
         sendFileReference(req, res, binId, fileId);
-      }
-      else res.writeHead(202, jsonHeaders).end(JSON.stringify({ complete: false }));
+      } else res.writeHead(202, jsonHeaders).end(JSON.stringify({ complete: false }));
     } catch {
       if (!res.headersSent) res.writeHead(500).end('Failed to finalize upload');
     }
@@ -707,11 +783,13 @@ async function onWriteFile(req, res, args) {
 }
 
 function sendFileReference(req, res, binId: string, fileId: string) {
-  res.writeHead(202, jsonHeaders).end(JSON.stringify({
-    id: fileId,
-    bin: binId,
-    url: String(new URL(`/f/${binId}/${fileId}`, getProxyHost(req))),
-  }));
+  res.writeHead(202, jsonHeaders).end(
+    JSON.stringify({
+      id: fileId,
+      bin: binId,
+      url: String(new URL(`/f/${binId}/${fileId}`, getProxyHost(req))),
+    }),
+  );
 }
 
 async function readBin(binId: string) {
@@ -747,10 +825,18 @@ async function onCreateBin(req, res) {
     const database = await getDatabase();
     if (database) {
       const now = Date.now();
-      await database.run('INSERT INTO storage_bins (id, visibility, owner_issuer, owner_subject, created_at) VALUES (?, ?, ?, ?, ?)', [binId, principal ? 'private' : 'public', principal?.issuer || null, principal?.subject || null, now]);
+      await database.run(
+        'INSERT INTO storage_bins (id, visibility, owner_issuer, owner_subject, created_at) VALUES (?, ?, ?, ?, ?)',
+        [binId, principal ? 'private' : 'public', principal?.issuer || null, principal?.subject || null, now],
+      );
     }
     if (principal && database) {
-      await database.run('INSERT INTO user_bins (issuer, subject, bin_id, created_at) VALUES (?, ?, ?, ?)', [principal.issuer, principal.subject, binId, Date.now()]);
+      await database.run('INSERT INTO user_bins (issuer, subject, bin_id, created_at) VALUES (?, ?, ?, ?)', [
+        principal.issuer,
+        principal.subject,
+        binId,
+        Date.now(),
+      ]);
       await audit(req, 'bin.create', binId);
     }
     res.setHeader('location', String(new URL('/bin/' + binId, getProxyHost(req))));
@@ -1082,9 +1168,9 @@ function badRequest(res, message = 'Bad request') {
 }
 
 function unauthorized(res) {
-  res.writeHead(401, { ...jsonHeaders, 'www-authenticate': 'Basic realm="FileBin"' }).end(
-    JSON.stringify({ error: 'This bin is locked' }),
-  );
+  res
+    .writeHead(401, { ...jsonHeaders, 'www-authenticate': 'Basic realm="FileBin"' })
+    .end(JSON.stringify({ error: 'This bin is locked' }));
 }
 
 function unauthenticated(res) {
@@ -1285,7 +1371,9 @@ async function readMetaFile(metaPath: string) {
     if (existsSync(metaPath)) {
       return JSON.parse(await readFile(metaPath, 'utf8'));
     }
-  } catch {}
+  } catch {
+    // Missing or malformed metadata is treated as empty metadata.
+  }
 
   return {};
 }
@@ -1339,7 +1427,10 @@ export function start(options: Options = {}) {
 
   cleanupAbandonedUploads().catch((error) => console.log(error));
   importDiskCatalog().catch((error) => console.log(error));
-  const cleanupTimer = setInterval(() => cleanupAbandonedUploads().catch((error) => console.log(error)), uploadCleanupIntervalMs);
+  const cleanupTimer = setInterval(
+    () => cleanupAbandonedUploads().catch((error) => console.log(error)),
+    uploadCleanupIntervalMs,
+  );
   cleanupTimer.unref();
 
   return createServer((req, res) => {

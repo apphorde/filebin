@@ -129,9 +129,9 @@
           renameBin,
           getBinLock,
           unlockBin,
-           setBinPassword,
-           removeBinPassword,
-           getMyBins,
+          setBinPassword,
+          removeBinPassword,
+          getMyBins,
         } from 'filebin';
 
         export default function setup() {
@@ -209,7 +209,6 @@
 
               if (!locked.value && !filesLoaded.value) updateList();
             }
-
           });
 
           function signIn() {
@@ -503,45 +502,51 @@
           <span>Drop your files here to start the upload.</span>
         </div>
 
-         <div class="bg-gray-100 flex items-center justify-between border-b px-3 md:px-6 w-full py-2.5" class-hidden="isLanding">
-           <a class="flex items-center gap-2 font-semibold" href="#" on-click="onHomeClick()"
-             ><img src="/icon.svg" alt="File Bin" class="h-8 w-8 rounded-lg" />
-           </a>
-           <a attr-href="getBinUrl()" class="mx-4 min-w-0 truncate text-xs rounded hidden md:block" on-click.prevent="onCopyUrl()"
-             >{{ binId || '' }}</a
-           >
-            <div class="flex items-center justify-end gap-2">
-              <a
-                class="h-9 w-9 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 border border-gray-300 bg-white hover:bg-gray-50 md:w-auto md:px-3"
-                href="/help"
-                aria-label="Help"
-                title="Help"
-              >
-                <lucide-icon icon="circle-question-mark" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-                <span class="hidden md:inline">Help</span>
-              </a>
-              <button
-                class="h-9 w-9 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 disabled:pointer-events-none border border-gray-300 bg-white hover:bg-gray-50 md:w-auto md:px-3"
-                on-click="onAddBin()"
-                bind-disabled="creating"
-                aria-label="New bin"
-              >
-               <lucide-icon icon="plus" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-               <span class="hidden md:inline">New bin</span>
-             </button>
-             <button
-               class="h-9 w-9 p-0 text-sm text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700 md:w-auto md:px-3"
-               on-click="onStartUpload()"
-               aria-label="Upload files"
-             >
-               <lucide-icon icon="upload" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-               <span class="hidden md:inline">Upload files</span>
-             </button>
+        <div
+          class="bg-gray-100 flex items-center justify-between border-b px-3 md:px-6 w-full py-2.5"
+          class-hidden="isLanding"
+        >
+          <a class="flex items-center gap-2 font-semibold" href="#" on-click="onHomeClick()"
+            ><img src="/icon.svg" alt="File Bin" class="h-8 w-8 rounded-lg" />
+          </a>
+          <a
+            attr-href="getBinUrl()"
+            class="mx-4 min-w-0 truncate text-xs rounded hidden md:block"
+            on-click.prevent="onCopyUrl()"
+            >{{ binId || '' }}</a
+          >
+          <div class="flex items-center justify-end gap-2">
+            <a
+              class="h-9 w-9 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 border border-gray-300 bg-white hover:bg-gray-50 md:w-auto md:px-3"
+              href="/help"
+              aria-label="Help"
+              title="Help"
+            >
+              <lucide-icon icon="circle-question-mark" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
+              <span class="hidden md:inline">Help</span>
+            </a>
+            <button
+              class="h-9 w-9 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 disabled:pointer-events-none border border-gray-300 bg-white hover:bg-gray-50 md:w-auto md:px-3"
+              on-click="onAddBin()"
+              bind-disabled="creating"
+              aria-label="New bin"
+            >
+              <lucide-icon icon="plus" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
+              <span class="hidden md:inline">New bin</span>
+            </button>
+            <button
+              class="h-9 w-9 p-0 text-sm text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700 md:w-auto md:px-3"
+              on-click="onStartUpload()"
+              aria-label="Upload files"
+            >
+              <lucide-icon icon="upload" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
+              <span class="hidden md:inline">Upload files</span>
+            </button>
             <div>
               <template if="profile">
                 <span
-                   class="h-9 w-9 p-0 text-sm border-0 bg-transparent inline-flex items-center justify-center rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none md:w-auto md:px-2"
-                    aria-label="Signed in as {{ profile?.name }}"
+                  class="h-9 w-9 p-0 text-sm border-0 bg-transparent inline-flex items-center justify-center rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none md:w-auto md:px-2"
+                  aria-label="Signed in as {{ profile?.name }}"
                 >
                   <lucide-icon icon="user-round" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
                   <span class="sr-only">Signed in as {{ profile?.name }}</span>
@@ -549,26 +554,32 @@
               </template>
               <template if="!profile">
                 <button
-                   class="h-9 w-9 p-0 text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 focus-visible:ring-offset-2 disabled:pointer-events-none border border-pink-700 bg-pink-600 hover:bg-pink-700 md:w-auto md:px-3"
-                   on-click="signIn(true)"
-                   aria-label="Sign in"
-                 >
-                   <lucide-icon icon="user-round" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-                   <span class="hidden md:inline">Sign in</span>
+                  class="h-9 w-9 p-0 text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 focus-visible:ring-offset-2 disabled:pointer-events-none border border-pink-700 bg-pink-600 hover:bg-pink-700 md:w-auto md:px-3"
+                  on-click="signIn(true)"
+                  aria-label="Sign in"
+                >
+                  <lucide-icon icon="user-round" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
+                  <span class="hidden md:inline">Sign in</span>
                 </button>
               </template>
             </div>
-         </div>
-         </div>
+          </div>
+        </div>
 
-        <main class="flex flex-1 items-center justify-center bg-gradient-to-br from-blue-50 via-white to-pink-50 px-6 py-12" class-hidden="!isLanding">
+        <main
+          class="flex flex-1 items-center justify-center bg-gradient-to-br from-blue-50 via-white to-pink-50 px-6 py-12"
+          class-hidden="!isLanding"
+        >
           <div class="w-full max-w-5xl">
             <div class="mb-16 flex items-center justify-between">
               <a class="flex items-center gap-3 text-lg font-bold" href="/app">
                 <img src="/icon.svg" alt="File Bin" class="h-10 w-10 rounded-xl" />
                 <span>File Bin</span>
               </a>
-              <a class="rounded-md border border-blue-700 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50" href="/app">
+              <a
+                class="rounded-md border border-blue-700 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
+                href="/app"
+              >
                 Open the app
               </a>
               <a class="sr-only" href="/help" aria-label="Help">Help</a>
@@ -580,21 +591,31 @@
                   A little bin for all your files.
                 </h1>
                 <p class="mb-8 max-w-lg text-lg leading-8 text-gray-600">
-                  Drop files into a private, shareable space. No folders to configure, no account required to get started.
+                  Drop files into a private, shareable space. No folders to configure, no account required to get
+                  started.
                 </p>
                 <div class="flex flex-wrap gap-3">
-                  <a class="inline-flex items-center gap-2 rounded-md bg-blue-700 px-5 py-3 font-medium text-white hover:bg-blue-800" href="/app">
+                  <a
+                    class="inline-flex items-center gap-2 rounded-md bg-blue-700 px-5 py-3 font-medium text-white hover:bg-blue-800"
+                    href="/app"
+                  >
                     Create a file bin
                     <lucide-icon icon="arrow-right" size="14" icon-classes="h-4 w-4"></lucide-icon>
                   </a>
                   <template if="profile">
-                    <a class="inline-flex items-center gap-2 rounded-md border border-blue-700 px-5 py-3 font-medium text-blue-700 hover:bg-blue-50" href="/app">
+                    <a
+                      class="inline-flex items-center gap-2 rounded-md border border-blue-700 px-5 py-3 font-medium text-blue-700 hover:bg-blue-50"
+                      href="/app"
+                    >
                       See my bins
                       <lucide-icon icon="folder" size="14" icon-classes="h-4 w-4"></lucide-icon>
                     </a>
                   </template>
                   <template if="!profile">
-                    <button class="inline-flex items-center gap-2 rounded-md border border-blue-700 px-5 py-3 font-medium text-blue-700 hover:bg-blue-50" on-click="signIn()">
+                    <button
+                      class="inline-flex items-center gap-2 rounded-md border border-blue-700 px-5 py-3 font-medium text-blue-700 hover:bg-blue-50"
+                      on-click="signIn()"
+                    >
                       Sign in
                       <lucide-icon icon="user-round" size="14" icon-classes="h-4 w-4"></lucide-icon>
                     </button>
@@ -604,11 +625,23 @@
               <div class="relative mx-auto w-full max-w-sm">
                 <div class="absolute -left-5 top-10 h-20 w-20 rounded-full bg-yellow-200"></div>
                 <div class="absolute -right-3 bottom-8 h-24 w-24 rounded-full bg-pink-200"></div>
-                <svg class="relative h-auto w-full" viewBox="0 0 360 300" role="img" aria-label="A cheerful file bin with floating files">
+                <svg
+                  class="relative h-auto w-full"
+                  viewBox="0 0 360 300"
+                  role="img"
+                  aria-label="A cheerful file bin with floating files"
+                >
                   <path d="M80 82h200l-18 158H98L80 82Z" fill="#2563eb" />
                   <path d="M64 67c0-9 7-16 16-16h64l18 18h122c9 0 16 7 16 16v18H64V67Z" fill="#60a5fa" />
                   <path d="M98 104h164l-12 108H110L98 104Z" fill="#dbeafe" />
-                  <path d="m130 144 26-26 24 24 22-18 30 32" fill="none" stroke="#2563eb" stroke-linecap="round" stroke-linejoin="round" stroke-width="10" />
+                  <path
+                    d="m130 144 26-26 24 24 22-18 30 32"
+                    fill="none"
+                    stroke="#2563eb"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="10"
+                  />
                   <circle cx="237" cy="54" r="20" fill="#f9a8d4" />
                   <path d="m237 43 3 8 9 1-7 6 2 9-7-5-8 5 2-9-7-6 9-1 4-8Z" fill="#fff" />
                   <rect x="52" y="122" width="42" height="34" rx="6" fill="#fcd34d" transform="rotate(-18 52 122)" />
@@ -619,7 +652,10 @@
           </div>
         </main>
 
-         <main class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6" class-hidden="isLanding || isHelp || !binId || locked">
+        <main
+          class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6"
+          class-hidden="isLanding || isHelp || !binId || locked"
+        >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3 min-w-0">
               <button
@@ -723,7 +759,10 @@
             </table>
           </div>
         </main>
-         <aside class="flex flex-1 items-center justify-center p-6" class-hidden="isLanding || isHelp || !binId || !locked">
+        <aside
+          class="flex flex-1 items-center justify-center p-6"
+          class-hidden="isLanding || isHelp || !binId || !locked"
+        >
           <form class="w-full max-w-sm border rounded-lg p-6 shadow-sm" on-submit.stop.prevent="onUnlock()">
             <h1 class="text-2xl font-bold mb-2">This bin is locked</h1>
             <p class="text-sm text-gray-600 mb-5">Enter its password to access any files or folders.</p>
@@ -753,7 +792,7 @@
             </button>
           </form>
         </aside>
-         <main class="order-2 mx-auto w-full max-w-4xl px-4 py-10 md:px-6 md:py-16" class-hidden="!isHelp">
+        <main class="order-2 mx-auto w-full max-w-4xl px-4 py-10 md:px-6 md:py-16" class-hidden="!isHelp">
           <div class="mb-12 max-w-2xl">
             <p class="mb-3 text-sm font-semibold uppercase tracking-widest text-blue-700">File Bin guide</p>
             <h1 class="mb-4 text-4xl font-bold tracking-tight md:text-5xl">Store files from anywhere.</h1>
@@ -855,23 +894,39 @@
         </main>
         <main class="flex flex-1 items-center justify-center px-4 py-8 md:px-6" class-hidden="!appStart">
           <div class="flex w-full max-w-3xl flex-col items-center text-center">
-            <div class="mb-8 w-full max-w-lg rounded-[2rem] bg-gradient-to-br from-blue-50 via-white to-yellow-50 p-6 md:p-10">
-              <svg class="mx-auto h-auto w-full max-w-xs" viewBox="0 0 360 260" role="img" aria-label="A cheerful empty file bin">
+            <div
+              class="mb-8 w-full max-w-lg rounded-[2rem] bg-gradient-to-br from-blue-50 via-white to-yellow-50 p-6 md:p-10"
+            >
+              <svg
+                class="mx-auto h-auto w-full max-w-xs"
+                viewBox="0 0 360 260"
+                role="img"
+                aria-label="A cheerful empty file bin"
+              >
                 <path d="M92 76h176l-16 134H108L92 76Z" fill="#2563eb" />
                 <path d="M78 62c0-8 6-14 14-14h55l18 17h108c8 0 14 6 14 14v17H78V62Z" fill="#93c5fd" />
                 <path d="M112 98h136l-11 91H123l-11-91Z" fill="#eff6ff" />
                 <circle cx="160" cy="138" r="7" fill="#2563eb" />
                 <circle cx="207" cy="138" r="7" fill="#2563eb" />
-                <path d="M165 157c12 12 25 12 37 0" fill="none" stroke="#2563eb" stroke-linecap="round" stroke-width="6" />
+                <path
+                  d="M165 157c12 12 25 12 37 0"
+                  fill="none"
+                  stroke="#2563eb"
+                  stroke-linecap="round"
+                  stroke-width="6"
+                />
                 <circle cx="58" cy="84" r="15" fill="#fcd34d" />
                 <circle cx="294" cy="130" r="18" fill="#f9a8d4" />
                 <path d="m294 118 3 8 8 1-6 5 2 9-7-5-7 5 2-9-7-5 8-1 4-8Z" fill="#fff" />
               </svg>
             </div>
             <p class="mb-3 text-sm font-semibold uppercase tracking-widest text-blue-700">Your workspace is ready</p>
-            <h1 class="mb-4 text-3xl font-black tracking-tight text-gray-950 md:text-5xl">Start with a fresh file bin.</h1>
+            <h1 class="mb-4 text-3xl font-black tracking-tight text-gray-950 md:text-5xl">
+              Start with a fresh file bin.
+            </h1>
             <p class="mb-8 max-w-xl text-lg leading-8 text-gray-600">
-              Create a bin, then upload files by selecting them or dropping them anywhere on this page. Your files will appear here.
+              Create a bin, then upload files by selecting them or dropping them anywhere on this page. Your files will
+              appear here.
             </p>
             <div class="flex flex-col gap-3 sm:flex-row">
               <button
@@ -882,7 +937,10 @@
                 <lucide-icon icon="plus" size="14" icon-classes="h-4 w-4"></lucide-icon>
                 <span>Create a file bin</span>
               </button>
-              <button class="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 px-5 py-3 font-medium text-gray-700 hover:bg-gray-50" on-click="onStartUpload()">
+              <button
+                class="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 px-5 py-3 font-medium text-gray-700 hover:bg-gray-50"
+                on-click="onStartUpload()"
+              >
                 <lucide-icon icon="upload" size="14" icon-classes="h-4 w-4"></lucide-icon>
                 <span>Upload files</span>
               </button>

@@ -69,7 +69,12 @@ function parseArguments(args) {
     partSize: Number(values['part-size'] || 8 * 1024 * 1024),
     concurrency: Number(values.concurrency || 3),
   };
-  if (!Number.isSafeInteger(options.partSize) || options.partSize < 1 || !Number.isSafeInteger(options.concurrency) || options.concurrency < 1) {
+  if (
+    !Number.isSafeInteger(options.partSize) ||
+    options.partSize < 1 ||
+    !Number.isSafeInteger(options.concurrency) ||
+    options.concurrency < 1
+  ) {
     throw new Error('--part-size and --concurrency must be positive integers');
   }
   return { options, positional: values.help ? ['help'] : positionals };
@@ -78,7 +83,9 @@ function parseArguments(args) {
 function createClient(options) {
   if (!options.server) throw new Error('Provide --server URL or FILEBIN_URL');
   const server = new URL(options.server);
-  const authorization = options.password ? `Basic ${Buffer.from(`api:${options.password}`).toString('base64')}` : undefined;
+  const authorization = options.password
+    ? `Basic ${Buffer.from(`api:${options.password}`).toString('base64')}`
+    : undefined;
 
   return async function request(path, init = {}) {
     const headers = new Headers(init.headers);
@@ -104,10 +111,12 @@ function missingRanges(ranges, total, partSize) {
   const missing = [];
   let cursor = 0;
   for (const range of [...ranges].sort((a, b) => a.start - b.start)) {
-    for (; cursor < range.start; cursor += partSize) missing.push({ start: cursor, end: Math.min(cursor + partSize - 1, range.start - 1) });
+    for (; cursor < range.start; cursor += partSize)
+      missing.push({ start: cursor, end: Math.min(cursor + partSize - 1, range.start - 1) });
     cursor = Math.max(cursor, range.end + 1);
   }
-  for (; cursor < total; cursor += partSize) missing.push({ start: cursor, end: Math.min(cursor + partSize - 1, total - 1) });
+  for (; cursor < total; cursor += partSize)
+    missing.push({ start: cursor, end: Math.min(cursor + partSize - 1, total - 1) });
   return missing;
 }
 
@@ -116,7 +125,13 @@ async function upload(request, binId, path, options) {
   let fileId = options.fileId;
   if (!fileId) {
     const metadata = { name: options.name || basename(path), ...(options.immutable ? { immutable: true } : {}) };
-    fileId = (await json(request, `/f/${binId}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(metadata) })).fileId;
+    fileId = (
+      await json(request, `/f/${binId}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(metadata),
+      })
+    ).fileId;
     console.error(`Created upload session ${fileId}`);
   }
 
@@ -127,7 +142,8 @@ async function upload(request, binId, path, options) {
   }
 
   const status = await json(request, `/f/${binId}/${fileId}/upload`);
-  if (status.total !== null && status.total !== file.size) throw new Error(`Upload ${fileId} expects ${status.total} bytes, but ${path} has ${file.size}`);
+  if (status.total !== null && status.total !== file.size)
+    throw new Error(`Upload ${fileId} expects ${status.total} bytes, but ${path} has ${file.size}`);
   const ranges = missingRanges(status.ranges, file.size, options.partSize);
   const handle = await open(path, 'r');
   let result;
@@ -158,7 +174,9 @@ async function download(request, remotePath, localPath) {
   let localSize = 0;
   try {
     localSize = (await stat(localPath)).size;
-  } catch {}
+  } catch {
+    // A missing destination starts a new download.
+  }
 
   const head = await request(remotePath, { method: 'HEAD' });
   const remoteSize = Number(head.headers.get('content-length') || 0);
@@ -184,7 +202,16 @@ async function main() {
   if (resource === 'bin') {
     if (command === 'create') return console.log(JSON.stringify(await json(request, '/bin', { method: 'POST' })));
     if (command === 'list') return console.log(JSON.stringify(await json(request, `/bin/${args[0]}`)));
-    if (command === 'rename') return console.log(JSON.stringify(await json(request, `/bin/${args[0]}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ newId: args[1] }) })));
+    if (command === 'rename')
+      return console.log(
+        JSON.stringify(
+          await json(request, `/bin/${args[0]}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ newId: args[1] }),
+          }),
+        ),
+      );
     if (command === 'delete') return json(request, `/bin/${args[0]}`, { method: 'DELETE' });
   }
   if (resource === 'file') {
@@ -197,11 +224,21 @@ async function main() {
     if (command === 'download') return download(request, `/f/${args[0]}/${args[1]}`, args[2]);
     if (command === 'delete') return json(request, `/f/${args[0]}/${args[1]}`, { method: 'DELETE' });
   }
-  if (resource === 'zip' && command === 'upload') return console.log(JSON.stringify(await json(request, `/zip/${args[0]}`, { method: 'POST', body: createReadStream(args[1]), duplex: 'half' })));
+  if (resource === 'zip' && command === 'upload')
+    return console.log(
+      JSON.stringify(
+        await json(request, `/zip/${args[0]}`, { method: 'POST', body: createReadStream(args[1]), duplex: 'half' }),
+      ),
+    );
   if (resource === 'zip' && command === 'download') return download(request, `/zip/${args[0]}`, args[1]);
   if (resource === 'lock') {
     if (command === 'status') return console.log(JSON.stringify(await json(request, `/lock/${args[0]}`)));
-    if (command === 'set') return json(request, `/lock/${args[0]}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: options.password }) });
+    if (command === 'set')
+      return json(request, `/lock/${args[0]}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ password: options.password }),
+      });
     if (command === 'remove') return json(request, `/lock/${args[0]}`, { method: 'DELETE' });
   }
   throw new Error(usage);
