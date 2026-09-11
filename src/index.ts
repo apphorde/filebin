@@ -390,7 +390,7 @@ async function getOidcProfile(auth, tokens): Promise<any> {
   if (!tokens.id_token || !tokens.access_token) {
     throw new Error('OIDC provider did not return both ID and access tokens');
   }
-  await auth.verifyToken(tokens.id_token);
+  const claims: any = await auth.verifyToken(tokens.id_token);
   const response = await fetch(new URL('/userinfo', authIssuer), {
     headers: {
       authorization: `Bearer ${tokens.access_token}`,
@@ -398,7 +398,8 @@ async function getOidcProfile(auth, tokens): Promise<any> {
     },
   });
   if (!response.ok) throw new Error(`Could not load profile: ${response.status}`);
-  return response.json();
+  const profile: any = await response.json();
+  return { ...profile, sub: profile.sub || claims.sub, iss: profile.iss || claims.iss };
 }
 
 async function getDatabase() {
@@ -449,7 +450,7 @@ async function audit(req, action: string, target: string) {
     await database.run('INSERT INTO audit_events (actor_subject, action, target, created_at) VALUES (?, ?, ?, ?)', [
       principal?.subject || null,
       action,
-      target,
+      target || 'unknown',
       Date.now(),
     ]);
 }
@@ -569,11 +570,13 @@ async function onAuthLogin(req, res) {
   if (url.origin !== origin) url.href = `${origin}/app`;
   const redirectUri = `${origin}/auth/callback`;
   const authorization = auth.createAuthorizationRequest({ redirectUri });
+  const authorizationUrl = new URL(authorization.url);
+  authorizationUrl.searchParams.set('scope', 'openid profile');
   const state = Buffer.from(
     JSON.stringify({ ...authorization, url: String(url), expires: Date.now() + 10 * 60 * 1000 }),
   ).toString('base64url');
   setCookie(req, res, 'filebin_oidc', `${state}.${sign(state)}`, 600);
-  res.writeHead(302, { location: authorization.url }).end();
+  res.writeHead(302, { location: String(authorizationUrl) }).end();
 }
 
 async function onAuthCallback(req, res) {
