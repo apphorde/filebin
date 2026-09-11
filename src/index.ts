@@ -436,6 +436,17 @@ async function getPrincipal(req) {
   return profile?.sub ? { issuer: profile.iss || authIssuer, subject: profile.sub, profile } : null;
 }
 
+async function listOwnedBins(database, principal) {
+  return database.all(
+    `SELECT id AS bin_id
+     FROM storage_bins
+     WHERE rtrim(replace(owner_issuer, '"', ''), '/') = rtrim(?, '/')
+       AND replace(owner_subject, '"', '') = ?
+     ORDER BY created_at DESC`,
+    [principal.issuer, principal.subject],
+  );
+}
+
 async function audit(req, action: string, target: string) {
   const principal = await getPrincipal(req);
   const database = await getDatabase();
@@ -525,10 +536,7 @@ async function onAuthBins(req, res) {
   const principal = await getPrincipal(req);
   const database = await getDatabase();
   if (!principal || !database) return unauthenticated(res);
-  const bins = await database.all(
-    'SELECT id AS bin_id FROM storage_bins WHERE owner_issuer = ? AND owner_subject = ? ORDER BY created_at DESC',
-    [principal.issuer, principal.subject],
-  );
+  const bins = await listOwnedBins(database, principal);
   res.writeHead(200, jsonHeaders).end(JSON.stringify(bins.map((bin) => bin.bin_id)));
 }
 
@@ -538,10 +546,7 @@ async function readAuthState(req) {
     if (!profile) return { profile: null, binList: [] };
     const database = await getDatabase();
     const bins = database
-      ? await database.all(
-          'SELECT id AS bin_id FROM storage_bins WHERE owner_issuer = ? AND owner_subject = ? ORDER BY created_at DESC',
-          [profile.iss || authIssuer, profile.sub],
-        )
+      ? await listOwnedBins(database, { issuer: profile.iss || authIssuer, subject: profile.sub })
       : [];
     return { profile, binList: bins.map((bin) => bin.bin_id) };
   } catch {
