@@ -147,6 +147,6 @@ capability, so protect a bin immediately after creating it when this matters.
 | AUTH_PROVIDER         | OIDC provider URL, defaults to `https://auth.api.apphor.de` |
 | OIDC_CLIENT_ID        | OIDC client ID, defaults to `filebin`            |
 | OIDC_CLIENT_SECRET    | OIDC client secret used at `/auth/callback`       |
-| DATABASE_MODULE_URL   | SQLite-over-HTTPS ESM module URL                  |
+| DATABASE_URL          | Private SQLite-over-HTTPS ESM module URL          |
 | PUBLIC_BIN_RETENTION_HOURS | Public-bin inactivity period after the last completed upload, defaults to 168 |
 | PUBLIC_BIN_CLEANUP_TOKEN | Bearer token accepted by the external cleanup scheduler endpoint |

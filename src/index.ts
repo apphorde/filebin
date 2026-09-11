@@ -14,7 +14,7 @@ const rootDir = process.env.ROOT_DIR;
 const authIssuer = process.env.AUTH_PROVIDER || 'https://auth.api.apphor.de';
 const oidcClientId = process.env.OIDC_CLIENT_ID || 'filebin';
 const oidcClientSecret = process.env.OIDC_CLIENT_SECRET;
-const databaseModuleUrl = process.env.DATABASE_MODULE_URL || 'https://98b9a8a0020aa2b56238600dc3a7e54fac82b63e.db.apphor.de/index.mjs';
+const databaseModuleUrl = process.env.DATABASE_URL;
 const publicBinRetentionMs = Number(process.env.PUBLIC_BIN_RETENTION_HOURS || 168) * 60 * 60 * 1000;
 const publicBinCleanupToken = process.env.PUBLIC_BIN_CLEANUP_TOKEN;
 const authClientPromise = fetch(`${authIssuer}/node.mjs`)
@@ -25,7 +25,7 @@ const authClientPromise = fetch(`${authIssuer}/node.mjs`)
     clientId: oidcClientId,
   }))
   .catch(() => null);
-const databasePromise = fetch(databaseModuleUrl)
+const databasePromise = databaseModuleUrl ? fetch(databaseModuleUrl)
   .then((response) => response.text())
   .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
   .then(async (database) => {
@@ -78,7 +78,7 @@ const databasePromise = fetch(databaseModuleUrl)
     `);
     return database;
   })
-  .catch(() => null);
+  .catch(() => null) : Promise.resolve(null);
 const jsonHeaders = { 'content-type': 'application/json' };
 const lockFileName = '.bin.meta';
 const sessionSecret = randomBytes(32);
