@@ -131,7 +131,7 @@
           unlockBin,
            setBinPassword,
            removeBinPassword,
-           getProperty,
+           getMyBins,
         } from 'filebin';
 
         export default function setup() {
@@ -199,7 +199,7 @@
               if (response.ok) profile.value = await response.json();
             }
             if (profile.value && !binList.value.length) {
-              binList.value = (await getProperty('binList')) || [];
+              binList.value = await getMyBins();
             }
 
             if (binId.value) {
@@ -211,14 +211,6 @@
             }
 
           });
-
-          async function setProperty(key, value) {
-            return fetch('/auth/property', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ key, value }),
-            });
-          }
 
           function signIn() {
             location.href = `/auth/login?url=${encodeURIComponent(location.href)}`;
@@ -273,13 +265,7 @@
 
           async function updateBinList(f) {
             if (profile.value) {
-              try {
-                const list = f((await getProperty('binList')) || []);
-                binList.value = list;
-                await setProperty('binList', list);
-              } catch (error) {
-                console.error(error);
-              }
+              binList.value = f(binList.value);
             }
           }
 

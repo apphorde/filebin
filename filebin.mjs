@@ -261,9 +261,7 @@ export async function removeBinPassword(bin) {
  * @param {string} key
  * @returns {Promise<unknown | null>}
  */
-export async function getProperty(key) {
-  const req = await fetch(u(`/auth/property/${encodeURIComponent(key)}`), g);
-  if (req.status === 404) return null;
-  const property = req.ok ? await req.json() : await Promise.reject(new Error('Failed to retrieve user property'));
-  return property.value;
+export async function getMyBins() {
+  const req = await fetch(u('/auth/bins'), g);
+  return req.ok ? await req.json() : Promise.reject(new Error('Failed to retrieve account bins'));
 }

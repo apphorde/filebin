@@ -11,14 +11,46 @@ import { load } from 'js-yaml';
 import { promisify } from 'node:util';
 
 const rootDir = process.env.ROOT_DIR;
-const authIssuer = process.env.AUTH_ISSUER || 'https://auth.api.apphor.de';
+const authIssuer = process.env.AUTH_PROVIDER || 'https://auth.api.apphor.de';
+const oidcClientId = process.env.OIDC_CLIENT_ID || 'filebin';
+const oidcClientSecret = process.env.OIDC_CLIENT_SECRET;
+const databaseModuleUrl = process.env.DATABASE_MODULE_URL || 'https://98b9a8a0020aa2b56238600dc3a7e54fac82b63e.db.apphor.de/index.mjs';
 const authClientPromise = fetch(`${authIssuer}/node.mjs`)
   .then((response) => response.text())
   .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
   .then(({ createAuthClient }) => createAuthClient({
     issuer: authIssuer,
-    clientId: process.env.FILEBIN_OIDC_CLIENT_ID || 'filebin',
+    clientId: oidcClientId,
   }))
+  .catch(() => null);
+const databasePromise = fetch(databaseModuleUrl)
+  .then((response) => response.text())
+  .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
+  .then(async (database) => {
+    await database.exec(`
+      CREATE TABLE IF NOT EXISTS oidc_sessions (
+        id TEXT PRIMARY KEY,
+        profile TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS user_bins (
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        bin_id TEXT NOT NULL UNIQUE,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (issuer, subject, bin_id)
+      );
+      CREATE TABLE IF NOT EXISTS audit_events (
+        id INTEGER PRIMARY KEY,
+        actor_subject TEXT,
+        action TEXT NOT NULL,
+        target TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+    `);
+    return database;
+  })
   .catch(() => null);
 const jsonHeaders = { 'content-type': 'application/json' };
 const lockFileName = '.bin.meta';
@@ -285,75 +317,122 @@ async function getAuthClient() {
   return authClientPromise;
 }
 
+async function getDatabase() {
+  return databasePromise;
+}
+
+function getCookie(req, name: string) {
+  return String(req.headers.cookie || '')
+    .split(';')
+    .map((part) => part.trim().split('='))
+    .find(([key]) => key === name)?.[1];
+}
+
+function sign(value: string) {
+  return createHmac('sha256', sessionSecret).update(value).digest('base64url');
+}
+
+function setCookie(req, res, name: string, value: string, maxAge: number) {
+  const secure = getProxyHost(req).startsWith('https:') ? '; Secure' : '';
+  const cookie = `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
+  const existing = res.getHeader('set-cookie');
+  res.setHeader('set-cookie', existing ? [...(Array.isArray(existing) ? existing : [existing]), cookie] : cookie);
+}
+
+async function getSessionProfile(req) {
+  const raw = getCookie(req, 'filebin_session');
+  if (!raw) return null;
+  const [id, signature] = raw.split('.');
+  const expected = Buffer.from(sign(id || ''));
+  const actual = Buffer.from(signature || '');
+  if (!id || actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+  const database = await getDatabase();
+  const session = database && await database.get('SELECT profile FROM oidc_sessions WHERE id = ? AND expires_at > ?', [id, Date.now()]);
+  return session ? JSON.parse(session.profile) : null;
+}
+
+async function getPrincipal(req) {
+  const profile = await getSessionProfile(req);
+  return profile?.sub ? { issuer: profile.iss || authIssuer, subject: profile.sub, profile } : null;
+}
+
+async function audit(req, action: string, target: string) {
+  const principal = await getPrincipal(req);
+  const database = await getDatabase();
+  if (database) await database.run('INSERT INTO audit_events (actor_subject, action, target, created_at) VALUES (?, ?, ?, ?)', [principal?.subject || null, action, target, Date.now()]);
+}
+
 async function onAuthProfile(req, res) {
-  const auth = await getAuthClient();
-  const profile = auth && await auth.getSessionProfile(req);
+  const profile = await getSessionProfile(req);
   if (!profile) return unauthorized(res);
   res.writeHead(200, jsonHeaders).end(JSON.stringify(profile));
 }
 
+async function onAuthBins(req, res) {
+  const principal = await getPrincipal(req);
+  const database = await getDatabase();
+  if (!principal || !database) return unauthorized(res);
+  const bins = await database.all('SELECT bin_id FROM user_bins WHERE issuer = ? AND subject = ? ORDER BY created_at DESC', [principal.issuer, principal.subject]);
+  res.writeHead(200, jsonHeaders).end(JSON.stringify(bins.map((bin) => bin.bin_id)));
+}
+
 async function readAuthState(req) {
   try {
-    const auth = await getAuthClient();
-    const profile = auth && await auth.getSessionProfile(req);
+    const profile = await getSessionProfile(req);
     if (!profile) return { profile: null, binList: [] };
-
-    try {
-      const cookie = auth.getSessionCookie(req);
-      const response = await fetch(new URL('/properties/binList', authIssuer), { headers: { cookie } });
-      const property: any = response.ok ? await response.json() : null;
-      return { profile, binList: property?.value || [] };
-    } catch {
-      return { profile, binList: [] };
-    }
+    const database = await getDatabase();
+    const bins = database ? await database.all('SELECT bin_id FROM user_bins WHERE issuer = ? AND subject = ? ORDER BY created_at DESC', [profile.iss || authIssuer, profile.sub]) : [];
+    return { profile, binList: bins.map((bin) => bin.bin_id) };
   } catch {
     return { profile: null, binList: [] };
   }
 }
 
-async function proxyAuthRequest(req, res, path, init: any = {}) {
-  const auth = await getAuthClient();
-  if (!auth) return res.writeHead(503).end('Authentication service unavailable');
-
-  const cookie = auth.getSessionCookie(req);
-  if (!cookie) return unauthorized(res);
-
-  const response = await fetch(new URL(path, authIssuer), {
-    ...init,
-    headers: { ...init.headers, cookie },
-  });
-  res.writeHead(response.status, Object.fromEntries(response.headers));
-  res.end(await response.arrayBuffer());
-}
-
-async function onAuthProperty(req, res, args) {
-  const { key = '' } = args;
-  return proxyAuthRequest(req, res, `/properties/${encodeURIComponent(key)}`);
-}
-
-async function onSetAuthProperty(req, res) {
-  const body = await readStream(req);
-  return proxyAuthRequest(req, res, '/properties', {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body,
-  });
-}
-
 async function onAuthLogin(req, res) {
+  const auth = await getAuthClient();
+  if (!auth || !oidcClientSecret) return res.writeHead(503).end('OIDC is not configured');
   const forwardedProtocol = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0];
   const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost').split(',')[0];
   const origin = `${forwardedProtocol}://${forwardedHost}`;
   const requestedUrl = new URL(req.url, origin).searchParams.get('url') || `${origin}/app`;
   const url = new URL(requestedUrl, origin);
   if (url.origin !== origin) url.href = `${origin}/app`;
-  const loginUrl = new URL('/login', authIssuer);
-  loginUrl.searchParams.set('url', String(url));
-  res.writeHead(302, { location: String(loginUrl) }).end();
+  const redirectUri = `${origin}/auth/callback`;
+  const authorization = auth.createAuthorizationRequest({ redirectUri });
+  const state = Buffer.from(JSON.stringify({ ...authorization, url: String(url), expires: Date.now() + 10 * 60 * 1000 })).toString('base64url');
+  setCookie(req, res, 'filebin_oidc', `${state}.${sign(state)}`, 600);
+  res.writeHead(302, { location: authorization.url }).end();
+}
+
+async function onAuthCallback(req, res) {
+  const auth = await getAuthClient();
+  const cookie = getCookie(req, 'filebin_oidc');
+  const [state, signature] = String(cookie || '').split('.');
+  const expected = Buffer.from(sign(state || ''));
+  const actual = Buffer.from(signature || '');
+  if (!auth || !oidcClientSecret || !state || actual.length !== expected.length || !timingSafeEqual(actual, expected)) return unauthorized(res);
+  const saved = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
+  const url = new URL(req.url, getProxyHost(req));
+  if (saved.expires < Date.now() || url.searchParams.get('state') !== saved.state || !url.searchParams.get('code')) return unauthorized(res);
+  const tokens = await auth.exchangeCode({ code: url.searchParams.get('code'), codeVerifier: saved.codeVerifier, redirectUri: `${url.origin}/auth/callback`, clientSecret: oidcClientSecret });
+  const profile = await auth.getProfile(tokens.access_token);
+  const id = randomUUID();
+  const database = await getDatabase();
+  if (!database) return res.writeHead(503).end('Database unavailable');
+  await database.run('INSERT INTO oidc_sessions (id, profile, expires_at, created_at) VALUES (?, ?, ?, ?)', [id, JSON.stringify(profile), Date.now() + (Number(tokens.expires_in) || 3600) * 1000, Date.now()]);
+  setCookie(req, res, 'filebin_session', `${id}.${sign(id)}`, Number(tokens.expires_in) || 3600);
+  setCookie(req, res, 'filebin_oidc', '', 0);
+  await audit(req, 'auth.login', profile.sub);
+  res.writeHead(302, { location: saved.url }).end();
 }
 
 async function onAuthLogout(req, res) {
-  return proxyAuthRequest(req, res, '/', { method: 'DELETE' });
+  const raw = getCookie(req, 'filebin_session');
+  const id = raw?.split('.')[0];
+  const database = await getDatabase();
+  if (id && database) await database.run('DELETE FROM oidc_sessions WHERE id = ?', [id]);
+  setCookie(req, res, 'filebin_session', '', 0);
+  res.writeHead(204).end();
 }
 
 async function onWriteMetadata(req, res, args) {
@@ -571,10 +650,16 @@ async function onReadBin(_req, res, args) {
   });
 }
 
-function onCreateBin(req, res) {
+async function onCreateBin(req, res) {
   tryCatch(res, async () => {
     const binId = randomUUID();
     await ensureDir(join(rootDir, binId));
+    const principal = await getPrincipal(req);
+    const database = await getDatabase();
+    if (principal && database) {
+      await database.run('INSERT INTO user_bins (issuer, subject, bin_id, created_at) VALUES (?, ?, ?, ?)', [principal.issuer, principal.subject, binId, Date.now()]);
+      await audit(req, 'bin.create', binId);
+    }
     res.setHeader('location', String(new URL('/bin/' + binId, getProxyHost(req))));
     res.writeHead(201).end(JSON.stringify({ binId }));
   });
@@ -1087,9 +1172,9 @@ const match = router({
   'GET /app': onGetUI,
   'GET /help': onGetUI,
   'GET /auth/profile': onAuthProfile,
-  'GET /auth/property/:key': onAuthProperty,
-  'PUT /auth/property': onSetAuthProperty,
+  'GET /auth/bins': onAuthBins,
   'GET /auth/login': onAuthLogin,
+  'GET /auth/callback': onAuthCallback,
   'POST /auth/logout': onAuthLogout,
   'GET /b/:binId': onGetUI,
   'GET /manifest.webmanifest': onGetManifest,
