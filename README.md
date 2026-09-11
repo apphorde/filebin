@@ -72,6 +72,11 @@ Schedule `POST /admin/cleanup` nightly with
 `Authorization: Bearer $PUBLIC_BIN_CLEANUP_TOKEN` to remove expired public
 unclaimed bins. The endpoint returns the deleted bin IDs.
 
+Deleting a bin is a soft delete. `DELETE /bin/{binId}` marks it for removal
+after `BIN_DELETION_GRACE_HOURS` (168 by default); the cleanup scheduler then
+permanently removes its files and catalog records. The authenticated owner can
+cancel the deletion with `POST /bin/{binId}/restore` during that grace period.
+
 ### Large, resumable uploads
 
 `createFile()` returns an incomplete upload session. For ordinary uploads, use

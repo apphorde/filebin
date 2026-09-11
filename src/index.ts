@@ -24,6 +24,7 @@ const oidcClientSecret = process.env.OIDC_CLIENT_SECRET;
 const databaseModuleUrl = process.env.DATABASE_URL;
 const publicBinRetentionMs = Number(process.env.PUBLIC_BIN_RETENTION_HOURS || 168) * 60 * 60 * 1000;
 const publicBinCleanupToken = process.env.PUBLIC_BIN_CLEANUP_TOKEN;
+const binDeletionGraceMs = Number(process.env.BIN_DELETION_GRACE_HOURS || 168) * 60 * 60 * 1000;
 const oidcMissingConfiguration = [
   !authIssuer && 'AUTH_PROVIDER',
   !oidcClientId && 'OIDC_CLIENT_ID',
@@ -90,6 +91,9 @@ const databasePromise = databaseModuleUrl
         created_at INTEGER NOT NULL
       );
     `);
+        for (const column of ['deletion_requested_at', 'deletion_expires_at']) {
+          await database.exec(`ALTER TABLE storage_bins ADD COLUMN ${column} INTEGER`).catch(() => {});
+        }
         return database;
       })
       .catch(() => null)
@@ -445,6 +449,36 @@ async function listOwnedBins(database, principal) {
      ORDER BY created_at DESC`,
     [principal.issuer, principal.subject],
   );
+}
+
+async function getStorageBin(binId: string) {
+  const database = await getDatabase();
+  return database && database.get('SELECT * FROM storage_bins WHERE id = ?', [binId]);
+}
+
+async function markBinForDeletion(req, binId: string) {
+  const database = await getDatabase();
+  if (!database) return false;
+  const now = Date.now();
+  const expiresAt = now + binDeletionGraceMs;
+  await database.run('UPDATE storage_bins SET deletion_requested_at = ?, deletion_expires_at = ? WHERE id = ?', [
+    now,
+    expiresAt,
+    binId,
+  ]);
+  await audit(req, 'bin.delete_requested', binId);
+  return true;
+}
+
+async function permanentlyDeleteBin(binId: string) {
+  const database = await getDatabase();
+  await rm(join(rootDir, binId), { recursive: true, force: true });
+  await rm(join(rootDir, `${binId}.meta`), { force: true });
+  if (database) {
+    await database.run('DELETE FROM storage_uploads WHERE bin_id = ?', [binId]);
+    await database.run('DELETE FROM storage_files WHERE bin_id = ?', [binId]);
+    await database.run('DELETE FROM storage_bins WHERE id = ?', [binId]);
+  }
 }
 
 async function audit(req, action: string, target: string) {
@@ -937,9 +971,30 @@ async function onDeleteBin(_req, res, args) {
   }
 
   tryCatch(res, async () => {
-    await rm(binPath, { recursive: true });
-    res.end('OK');
+    if (!(await getDatabase())) {
+      await rm(binPath, { recursive: true });
+      return res.end('OK');
+    }
+    await importDiskCatalog();
+    if (!(await getStorageBin(binId))) return res.writeHead(404).end('Not found');
+    if (!(await markBinForDeletion(_req, binId))) return res.writeHead(503).end('Database unavailable');
+    res.writeHead(202, jsonHeaders).end(JSON.stringify({ binId, deletionGraceHours: binDeletionGraceMs / 3600000 }));
   });
+}
+
+async function onRestoreBin(req, res, args) {
+  const { binId = '' } = args;
+  const bin = await getStorageBin(binId);
+  const principal = await getPrincipal(req);
+  if (!bin || !principal || bin.owner_issuer !== principal.issuer || bin.owner_subject !== principal.subject) {
+    return unauthenticated(res);
+  }
+  const database = await getDatabase();
+  await database.run('UPDATE storage_bins SET deletion_requested_at = NULL, deletion_expires_at = NULL WHERE id = ?', [
+    binId,
+  ]);
+  await audit(req, 'bin.restored', binId);
+  res.writeHead(204).end();
 }
 
 async function onApiSpec(req, res) {
@@ -1333,17 +1388,16 @@ async function cleanupExpiredPublicBins() {
   const database = await getDatabase();
   if (!database || !Number.isFinite(publicBinRetentionMs) || publicBinRetentionMs <= 0) return [];
   await importDiskCatalog();
-  const cutoff = Date.now() - publicBinRetentionMs;
+  const now = Date.now();
+  const cutoff = now - publicBinRetentionMs;
   const bins = await database.all(
-    "SELECT id FROM storage_bins WHERE visibility = 'public' AND owner_subject IS NULL AND last_completed_upload_at IS NOT NULL AND last_completed_upload_at < ?",
-    [cutoff],
+    `SELECT id FROM storage_bins
+     WHERE (visibility = 'public' AND owner_subject IS NULL AND last_completed_upload_at IS NOT NULL AND last_completed_upload_at < ?)
+        OR (deletion_expires_at IS NOT NULL AND deletion_expires_at < ?)`,
+    [cutoff, now],
   );
   for (const { id } of bins) {
-    await rm(join(rootDir, id), { recursive: true, force: true });
-    await rm(join(rootDir, `${id}.meta`), { force: true });
-    await database.run('DELETE FROM storage_uploads WHERE bin_id = ?', [id]);
-    await database.run('DELETE FROM storage_files WHERE bin_id = ?', [id]);
-    await database.run('DELETE FROM storage_bins WHERE id = ?', [id]);
+    await permanentlyDeleteBin(id);
   }
   return bins.map((bin) => bin.id);
 }
@@ -1421,6 +1475,7 @@ const match = router({
   'PATCH /bin/:binId': onRenameBinPatch,
   'GET /bin/:binId': onReadBin,
   'DELETE /bin/:binId': onDeleteBin,
+  'POST /bin/:binId/restore': onRestoreBin,
 
   'POST /f/:binId': onCreateFile,
   'HEAD /f/:binId/:fileId': onFileExists,

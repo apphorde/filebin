@@ -143,12 +143,29 @@ paths:
         '401': { $ref: '#/components/responses/Locked' }
     delete:
       tags: [bins]
-      summary: Delete a bin and all of its files
+      summary: Mark a bin for deletion
+      description: The bin remains recoverable for `BIN_DELETION_GRACE_HOURS`, default 168 hours. Permanent removal is performed by the cleanup scheduler.
       operationId: removeBin
       security: [{ basicAuth: [] }, { unlockCookie: [] }]
       responses:
-        '200': { description: Bin deleted }
+        '202':
+          description: Bin marked for deletion
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BinDeletionScheduled' }
         '401': { $ref: '#/components/responses/Locked' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /bin/{binId}/restore:
+    parameters:
+      - $ref: '#/components/parameters/BinId'
+    post:
+      tags: [bins]
+      summary: Restore a bin marked for deletion
+      operationId: restoreBin
+      security: [{ oidcSession: [] }]
+      responses:
+        '204': { description: Deletion cancelled }
+        '401': { description: The authenticated owner is required }
         '404': { $ref: '#/components/responses/NotFound' }
   /f/{binId}:
     parameters:
@@ -431,6 +448,11 @@ components:
       type: http
       scheme: bearer
       description: Value of PUBLIC_BIN_CLEANUP_TOKEN.
+    oidcSession:
+      type: apiKey
+      in: cookie
+      name: filebin_session
+      description: Authenticated OIDC session cookie.
     basicAuth:
       type: http
       scheme: basic
@@ -469,6 +491,12 @@ components:
       required: [binId]
       properties:
         binId: { type: string }
+    BinDeletionScheduled:
+      type: object
+      required: [binId, deletionGraceHours]
+      properties:
+        binId: { type: string }
+        deletionGraceHours: { type: number, example: 168 }
     FileCreated:
       type: object
       required: [fileId]
