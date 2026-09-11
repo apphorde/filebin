@@ -11,7 +11,80 @@ tags:
   - name: bins
   - name: files
   - name: protection
+  - name: authentication
 paths:
+  /auth/login:
+    get:
+      tags: [authentication]
+      summary: Start OIDC authorization-code login
+      description: Redirects to the configured OIDC provider. The optional `url` query parameter is limited to the current origin and is used after the callback completes.
+      operationId: login
+      responses:
+        '302': { description: Redirect to OIDC authorization endpoint }
+        '503': { description: OIDC is not configured }
+  /auth/callback:
+    get:
+      tags: [authentication]
+      summary: Complete OIDC authorization-code login
+      operationId: authCallback
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema: { type: string }
+        - name: state
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '302': { description: Session created and redirect restored }
+        '401': { description: Invalid or expired login state }
+  /auth/profile:
+    get:
+      tags: [authentication]
+      summary: Read the current OIDC profile
+      operationId: readAuthProfile
+      responses:
+        '200':
+          description: Authenticated profile
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { description: No authenticated session }
+  /auth/bins:
+    get:
+      tags: [authentication]
+      summary: List bins created by the authenticated user
+      operationId: listAuthBins
+      responses:
+        '200':
+          description: Owned bin IDs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string, format: uuid }
+        '401': { description: No authenticated session }
+  /admin/cleanup:
+    post:
+      tags: [bins]
+      summary: Remove expired public bins
+      description: For external schedulers. Deletes only public, unclaimed bins whose last completed upload is older than `PUBLIC_BIN_RETENTION_HOURS`.
+      operationId: cleanupPublicBins
+      security: [{ cleanupToken: [] }]
+      responses:
+        '200':
+          description: Completed cleanup
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted:
+                    type: array
+                    items: { type: string, format: uuid }
+        '401': { description: Missing or invalid scheduler token }
   /bin:
     post:
       tags: [bins]
@@ -354,6 +427,10 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 components:
   securitySchemes:
+    cleanupToken:
+      type: http
+      scheme: bearer
+      description: Value of PUBLIC_BIN_CLEANUP_TOKEN.
     basicAuth:
       type: http
       scheme: basic

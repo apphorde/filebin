@@ -129,8 +129,9 @@
           renameBin,
           getBinLock,
           unlockBin,
-          setBinPassword,
-          removeBinPassword,
+           setBinPassword,
+           removeBinPassword,
+           getMyBins,
         } from 'filebin';
 
         export default function setup() {
@@ -197,6 +198,9 @@
               const response = await fetch('/auth/profile');
               if (response.ok) profile.value = await response.json();
             }
+            if (profile.value && !binList.value.length) {
+              binList.value = await getMyBins();
+            }
 
             if (binId.value) {
               const status = await getBinLock(binId.value);
@@ -207,14 +211,6 @@
             }
 
           });
-
-          async function setProperty(key, value) {
-            return fetch('/auth/property', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ key, value }),
-            });
-          }
 
           function signIn() {
             location.href = `/auth/login?url=${encodeURIComponent(location.href)}`;
@@ -269,13 +265,7 @@
 
           async function updateBinList(f) {
             if (profile.value) {
-              try {
-                const list = f((await getProperty('binList')) || []);
-                binList.value = list;
-                await setProperty('binList', list);
-              } catch (error) {
-                console.error(error);
-              }
+              binList.value = f(binList.value);
             }
           }
 
@@ -592,10 +582,24 @@
                 <p class="mb-8 max-w-lg text-lg leading-8 text-gray-600">
                   Drop files into a private, shareable space. No folders to configure, no account required to get started.
                 </p>
-                <a class="inline-flex items-center gap-2 rounded-md bg-blue-700 px-5 py-3 font-medium text-white hover:bg-blue-800" href="/app">
-                  Create a file bin
-                  <lucide-icon icon="arrow-right" size="14" icon-classes="h-4 w-4"></lucide-icon>
-                </a>
+                <div class="flex flex-wrap gap-3">
+                  <a class="inline-flex items-center gap-2 rounded-md bg-blue-700 px-5 py-3 font-medium text-white hover:bg-blue-800" href="/app">
+                    Create a file bin
+                    <lucide-icon icon="arrow-right" size="14" icon-classes="h-4 w-4"></lucide-icon>
+                  </a>
+                  <template if="profile">
+                    <a class="inline-flex items-center gap-2 rounded-md border border-blue-700 px-5 py-3 font-medium text-blue-700 hover:bg-blue-50" href="/app">
+                      See my bins
+                      <lucide-icon icon="folder" size="14" icon-classes="h-4 w-4"></lucide-icon>
+                    </a>
+                  </template>
+                  <template if="!profile">
+                    <button class="inline-flex items-center gap-2 rounded-md border border-blue-700 px-5 py-3 font-medium text-blue-700 hover:bg-blue-50" on-click="signIn()">
+                      Sign in
+                      <lucide-icon icon="user-round" size="14" icon-classes="h-4 w-4"></lucide-icon>
+                    </button>
+                  </template>
+                </div>
               </div>
               <div class="relative mx-auto w-full max-w-sm">
                 <div class="absolute -left-5 top-10 h-20 w-20 rounded-full bg-yellow-200"></div>
@@ -883,7 +887,7 @@
                 <span>Upload files</span>
               </button>
             </div>
-            <template if="!binList?.length">
+            <template if="!profile && !binList?.length">
               <p class="mt-10 text-sm text-gray-500">Sign in to keep your bins available across devices.</p>
             </template>
           </div>

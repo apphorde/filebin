@@ -62,6 +62,15 @@ by the authenticated user and are the basis for future sharing permissions and
 storage plans. A public bin cannot be converted to a private bin, which avoids
 granting ownership based only on knowledge of a bin ID.
 
+At startup, FileBin imports existing disk bins, committed files, metadata, system
+metadata, and incomplete upload state into the configured SQLite catalog.
+Imported bins remain public and unclaimed because disk state cannot prove an
+OIDC owner. New authenticated bins are recorded as owned at creation time.
+
+Schedule `POST /admin/cleanup` nightly with
+`Authorization: Bearer $PUBLIC_BIN_CLEANUP_TOKEN` to remove expired public
+unclaimed bins. The endpoint returns the deleted bin IDs.
+
 ### Large, resumable uploads
 
 `createFile()` returns an incomplete upload session. For ordinary uploads, use
@@ -135,7 +144,9 @@ capability, so protect a bin immediately after creating it when this matters.
 | --------------------- | ------------------------------------------------- |
 | ROOT_DIR              | String. Path to a folder where all data is stored |
 | PORT                  | Number. HTTP port                                 |
-| AUTH_ISSUER           | Optional OIDC provider URL                        |
-| FILEBIN_OIDC_CLIENT_ID | Optional OIDC client ID, defaults to `filebin`   |
+| AUTH_PROVIDER         | OIDC provider URL, defaults to `https://auth.api.apphor.de` |
+| OIDC_CLIENT_ID        | OIDC client ID, defaults to `filebin`            |
+| OIDC_CLIENT_SECRET    | OIDC client secret used at `/auth/callback`       |
+| DATABASE_URL          | Private SQLite-over-HTTPS ESM module URL          |
 | PUBLIC_BIN_RETENTION_HOURS | Public-bin inactivity period after the last completed upload, defaults to 168 |
 | PUBLIC_BIN_CLEANUP_TOKEN | Bearer token accepted by the external cleanup scheduler endpoint |

@@ -256,3 +256,12 @@ export async function removeBinPassword(bin) {
   const req = await fetch(u(`/lock/${bin}`), d);
   return req.ok || Promise.reject(new Error('Failed to remove bin protection'));
 }
+
+/**
+ * @param {string} key
+ * @returns {Promise<unknown | null>}
+ */
+export async function getMyBins() {
+  const req = await fetch(u('/auth/bins'), g);
+  return req.ok ? await req.json() : Promise.reject(new Error('Failed to retrieve account bins'));
+}
