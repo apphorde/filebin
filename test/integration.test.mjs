@@ -527,5 +527,5 @@ test('help page documents the command-line client', async () => {
 
   const appPage = await (await fetch(`${baseUrl}/app`)).text();
   assert.match(appPage, /Start with a fresh file bin/);
-  assert.match(appPage, /on-click="onStartUpload\(\)"/);
+  assert.doesNotMatch(appPage, /on-click="onStartUpload\(\)"/);
 });

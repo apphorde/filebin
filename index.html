@@ -323,15 +323,6 @@
             fileUploadDialog.value.close();
           }
 
-          function onStartUpload() {
-            if (binId.value) {
-              fileUploadDialog.value.showModal();
-              return;
-            }
-
-            onAddBin();
-          }
-
           function onFolderUpload() {
             uploadFiles([...folderUploadInput.value.files]);
             folderUploadInput.value.value = '';
@@ -481,7 +472,6 @@
             isHelp,
             isLanding,
             appStart,
-            onStartUpload,
           };
         }
       </script>
@@ -536,7 +526,7 @@
             </button>
             <button
               class="h-9 w-9 p-0 text-sm text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700 md:w-auto md:px-3"
-              on-click="onStartUpload()"
+              on-click="filedialog.showModal()"
               aria-label="Upload files"
             >
               <lucide-icon icon="upload" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
@@ -936,13 +926,6 @@
               >
                 <lucide-icon icon="plus" size="14" icon-classes="h-4 w-4"></lucide-icon>
                 <span>Create a file bin</span>
-              </button>
-              <button
-                class="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 px-5 py-3 font-medium text-gray-700 hover:bg-gray-50"
-                on-click="onStartUpload()"
-              >
-                <lucide-icon icon="upload" size="14" icon-classes="h-4 w-4"></lucide-icon>
-                <span>Upload files</span>
               </button>
             </div>
             <template if="!profile && !binList?.length">
