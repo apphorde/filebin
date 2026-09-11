@@ -18,6 +18,9 @@ test('the app mounts without a startup module error', async ({ page }) => {
     }
   });
 
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+
   await page.goto('/app', { waitUntil: 'networkidle' });
 
   await expect(page.getByRole('link', { name: 'File Bin' })).toBeVisible();
