@@ -148,5 +148,6 @@ capability, so protect a bin immediately after creating it when this matters.
 | OIDC_CLIENT_ID             | Required OIDC client ID                                                       |
 | OIDC_CLIENT_SECRET         | OIDC client secret used at `/auth/callback`                                   |
 | DATABASE_URL               | Private SQLite-over-HTTPS ESM module URL                                      |
+| SESSION_SECRET             | Shared secret for signing session cookies                                     |
 | PUBLIC_BIN_RETENTION_HOURS | Public-bin inactivity period after the last completed upload, defaults to 168 |
 | PUBLIC_BIN_CLEANUP_TOKEN   | Bearer token accepted by the external cleanup scheduler endpoint              |

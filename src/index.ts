@@ -103,7 +103,7 @@ const databasePromise = databaseModuleUrl
   : Promise.resolve(null);
 const jsonHeaders = { 'content-type': 'application/json' };
 const lockFileName = '.bin.meta';
-const sessionSecret = randomBytes(32);
+const sessionSecret = process.env.SESSION_SECRET || randomBytes(32);
 const scrypt = promisify(scryptCallback);
 const uploadLocks = new Map<string, Promise<void>>();
 const uploadRetentionMs = Number(process.env.UPLOAD_RETENTION_HOURS || 72) * 60 * 60 * 1000;
