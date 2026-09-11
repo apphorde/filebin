@@ -51,7 +51,7 @@ paths:
             application/json:
               schema: { type: object, additionalProperties: true }
         '401': { description: No authenticated session }
-  /auth/bins:
+  /api/bins:
     get:
       tags: [authentication]
       summary: List bins created by the authenticated user

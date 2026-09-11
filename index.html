@@ -883,55 +883,76 @@
           </section>
         </main>
         <main class="flex flex-1 items-center justify-center px-4 py-8 md:px-6" class-hidden="!appStart">
-          <div class="flex w-full max-w-3xl flex-col items-center text-center">
-            <div
-              class="mb-8 w-full max-w-lg rounded-[2rem] bg-gradient-to-br from-blue-50 via-white to-yellow-50 p-6 md:p-10"
-            >
-              <svg
-                class="mx-auto h-auto w-full max-w-xs"
-                viewBox="0 0 360 260"
-                role="img"
-                aria-label="A cheerful empty file bin"
-              >
-                <path d="M92 76h176l-16 134H108L92 76Z" fill="#2563eb" />
-                <path d="M78 62c0-8 6-14 14-14h55l18 17h108c8 0 14 6 14 14v17H78V62Z" fill="#93c5fd" />
-                <path d="M112 98h136l-11 91H123l-11-91Z" fill="#eff6ff" />
-                <circle cx="160" cy="138" r="7" fill="#2563eb" />
-                <circle cx="207" cy="138" r="7" fill="#2563eb" />
-                <path
-                  d="M165 157c12 12 25 12 37 0"
-                  fill="none"
-                  stroke="#2563eb"
-                  stroke-linecap="round"
-                  stroke-width="6"
-                />
-                <circle cx="58" cy="84" r="15" fill="#fcd34d" />
-                <circle cx="294" cy="130" r="18" fill="#f9a8d4" />
-                <path d="m294 118 3 8 8 1-6 5 2 9-7-5-7 5 2-9-7-5 8-1 4-8Z" fill="#fff" />
-              </svg>
+          <template if="binList?.length">
+            <div class="w-full max-w-3xl">
+              <p class="mb-3 text-sm font-semibold uppercase tracking-widest text-blue-700">Your bins</p>
+              <h1 class="mb-8 text-3xl font-black tracking-tight text-gray-950 md:text-5xl">
+                Continue with a file bin.
+              </h1>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <template for="bin of binList">
+                  <a
+                    class="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-blue-400 hover:shadow-md"
+                    bind-href="getBinUrl(bin)"
+                  >
+                    <span class="truncate font-medium text-gray-900">{{ bin }}</span>
+                    <lucide-icon icon="arrow-right" size="14" icon-classes="h-4 w-4 text-blue-700"></lucide-icon>
+                  </a>
+                </template>
+              </div>
             </div>
-            <p class="mb-3 text-sm font-semibold uppercase tracking-widest text-blue-700">Your workspace is ready</p>
-            <h1 class="mb-4 text-3xl font-black tracking-tight text-gray-950 md:text-5xl">
-              Start with a fresh file bin.
-            </h1>
-            <p class="mb-8 max-w-xl text-lg leading-8 text-gray-600">
-              Create a bin, then upload files by selecting them or dropping them anywhere on this page. Your files will
-              appear here.
-            </p>
-            <div class="flex flex-col gap-3 sm:flex-row">
-              <button
-                class="inline-flex items-center justify-center gap-2 rounded-md bg-blue-700 px-5 py-3 font-medium text-white hover:bg-blue-800"
-                on-click="onAddBin()"
-                bind-disabled="creating"
+          </template>
+          <template if="!binList?.length">
+            <div class="flex w-full max-w-3xl flex-col items-center text-center">
+              <div
+                class="mb-8 w-full max-w-lg rounded-[2rem] bg-gradient-to-br from-blue-50 via-white to-yellow-50 p-6 md:p-10"
               >
-                <lucide-icon icon="plus" size="14" icon-classes="h-4 w-4"></lucide-icon>
-                <span>Create a file bin</span>
-              </button>
+                <svg
+                  class="mx-auto h-auto w-full max-w-xs"
+                  viewBox="0 0 360 260"
+                  role="img"
+                  aria-label="A cheerful empty file bin"
+                >
+                  <path d="M92 76h176l-16 134H108L92 76Z" fill="#2563eb" />
+                  <path d="M78 62c0-8 6-14 14-14h55l18 17h108c8 0 14 6 14 14v17H78V62Z" fill="#93c5fd" />
+                  <path d="M112 98h136l-11 91H123l-11-91Z" fill="#eff6ff" />
+                  <circle cx="160" cy="138" r="7" fill="#2563eb" />
+                  <circle cx="207" cy="138" r="7" fill="#2563eb" />
+                  <path
+                    d="M165 157c12 12 25 12 37 0"
+                    fill="none"
+                    stroke="#2563eb"
+                    stroke-linecap="round"
+                    stroke-width="6"
+                  />
+                  <circle cx="58" cy="84" r="15" fill="#fcd34d" />
+                  <circle cx="294" cy="130" r="18" fill="#f9a8d4" />
+                  <path d="m294 118 3 8 8 1-6 5 2 9-7-5-7 5 2-9-7-5 8-1 4-8Z" fill="#fff" />
+                </svg>
+              </div>
+              <p class="mb-3 text-sm font-semibold uppercase tracking-widest text-blue-700">Your workspace is ready</p>
+              <h1 class="mb-4 text-3xl font-black tracking-tight text-gray-950 md:text-5xl">
+                Start with a fresh file bin.
+              </h1>
+              <p class="mb-8 max-w-xl text-lg leading-8 text-gray-600">
+                Create a bin, then upload files by selecting them or dropping them anywhere on this page. Your files
+                will appear here.
+              </p>
+              <div class="flex flex-col gap-3 sm:flex-row">
+                <button
+                  class="inline-flex items-center justify-center gap-2 rounded-md bg-blue-700 px-5 py-3 font-medium text-white hover:bg-blue-800"
+                  on-click="onAddBin()"
+                  bind-disabled="creating"
+                >
+                  <lucide-icon icon="plus" size="14" icon-classes="h-4 w-4"></lucide-icon>
+                  <span>Create a file bin</span>
+                </button>
+              </div>
+              <template if="!profile && !binList?.length">
+                <p class="mt-10 text-sm text-gray-500">Sign in to keep your bins available across devices.</p>
+              </template>
             </div>
-            <template if="!profile && !binList?.length">
-              <p class="mt-10 text-sm text-gray-500">Sign in to keep your bins available across devices.</p>
-            </template>
-          </div>
+          </template>
         </main>
       </div>
       <dialog ref="filedialog">

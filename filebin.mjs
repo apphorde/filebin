@@ -263,6 +263,6 @@ export async function removeBinPassword(bin) {
  * @returns {Promise<unknown | null>}
  */
 export async function getMyBins() {
-  const req = await fetch(u('/auth/bins'), g);
+  const req = await fetch(u('/api/bins'), g);
   return req.ok ? await req.json() : Promise.reject(new Error('Failed to retrieve account bins'));
 }

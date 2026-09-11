@@ -1412,7 +1412,7 @@ const match = router({
   'GET /app': onGetUI,
   'GET /help': onGetUI,
   'GET /auth/profile': onAuthProfile,
-  'GET /auth/bins': onAuthBins,
+  'GET /api/bins': onAuthBins,
   'GET /auth/login': onAuthLogin,
   'GET /auth/callback': onAuthCallback,
   'POST /auth/logout': onAuthLogout,
