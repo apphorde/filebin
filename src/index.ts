@@ -18,7 +18,7 @@ import { load } from 'js-yaml';
 import { promisify } from 'node:util';
 
 const rootDir = process.env.ROOT_DIR;
-const authIssuer = process.env.AUTH_PROVIDER;
+const authIssuer = process.env.AUTH_PROVIDER?.replace(/\/+$/, '');
 const oidcClientId = process.env.OIDC_CLIENT_ID;
 const oidcClientSecret = process.env.OIDC_CLIENT_SECRET;
 const databaseModuleUrl = process.env.DATABASE_URL;
@@ -386,6 +386,21 @@ async function getAuthClient() {
   return authClientPromise;
 }
 
+async function getOidcProfile(auth, tokens): Promise<any> {
+  if (!tokens.id_token || !tokens.access_token) {
+    throw new Error('OIDC provider did not return both ID and access tokens');
+  }
+  await auth.verifyToken(tokens.id_token);
+  const response = await fetch(new URL('/userinfo', authIssuer), {
+    headers: {
+      authorization: `Bearer ${tokens.access_token}`,
+      'x-auth-audience': oidcClientId,
+    },
+  });
+  if (!response.ok) throw new Error(`Could not load profile: ${response.status}`);
+  return response.json();
+}
+
 async function getDatabase() {
   return databasePromise;
 }
@@ -579,7 +594,7 @@ async function onAuthCallback(req, res) {
     redirectUri: `${url.origin}/auth/callback`,
     clientSecret: oidcClientSecret,
   });
-  const profile = await auth.getProfile(tokens.access_token);
+  const profile = await getOidcProfile(auth, tokens);
   const id = randomUUID();
   const database = await getDatabase();
   if (!database) return res.writeHead(503).end('Database unavailable');
