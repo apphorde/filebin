@@ -24,9 +24,14 @@ const oidcClientSecret = process.env.OIDC_CLIENT_SECRET;
 const databaseModuleUrl = process.env.DATABASE_URL;
 const publicBinRetentionMs = Number(process.env.PUBLIC_BIN_RETENTION_HOURS || 168) * 60 * 60 * 1000;
 const publicBinCleanupToken = process.env.PUBLIC_BIN_CLEANUP_TOKEN;
+const oidcMissingConfiguration = [
+  !authIssuer && 'AUTH_PROVIDER',
+  !oidcClientId && 'OIDC_CLIENT_ID',
+  !oidcClientSecret && 'OIDC_CLIENT_SECRET',
+].filter(Boolean);
 const authClientPromise =
   authIssuer && oidcClientId
-    ? fetch(`${authIssuer}/node.mjs`)
+    ? fetch(new URL('/node.mjs', authIssuer))
         .then((response) => response.text())
         .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
         .then(({ createAuthClient }) =>
@@ -35,7 +40,10 @@ const authClientPromise =
             clientId: oidcClientId,
           }),
         )
-        .catch(() => null)
+        .catch((error) => {
+          console.error('Unable to initialize OIDC provider client:', error);
+          return null;
+        })
     : Promise.resolve(null);
 const databasePromise = databaseModuleUrl
   ? fetch(databaseModuleUrl)
@@ -534,7 +542,10 @@ async function readAuthState(req) {
 
 async function onAuthLogin(req, res) {
   const auth = await getAuthClient();
-  if (!auth || !oidcClientSecret) return res.writeHead(503).end('OIDC is not configured');
+  if (oidcMissingConfiguration.length) {
+    return res.writeHead(503).end(`OIDC configuration missing: ${oidcMissingConfiguration.join(', ')}`);
+  }
+  if (!auth) return res.writeHead(503).end('OIDC provider client is unavailable');
   const forwardedProtocol = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0];
   const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost').split(',')[0];
   const origin = `${forwardedProtocol}://${forwardedHost}`;
