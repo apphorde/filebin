@@ -64,8 +64,9 @@ granting ownership based only on knowledge of a bin ID.
 
 At startup, FileBin imports existing disk bins, committed files, metadata, system
 metadata, and incomplete upload state into the configured SQLite catalog.
-Imported bins remain public and unclaimed because disk state cannot prove an
-OIDC owner. New authenticated bins are recorded as owned at creation time.
+Imported bins remain public and unclaimed by default because disk state cannot
+prove an OIDC owner. New authenticated bins are recorded as owned at creation
+time. Ownership is stored in the `storage_bins` catalog.
 
 Schedule `POST /admin/cleanup` nightly with
 `Authorization: Bearer $PUBLIC_BIN_CLEANUP_TOKEN` to remove expired public

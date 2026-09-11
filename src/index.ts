@@ -57,13 +57,6 @@ const databasePromise = databaseModuleUrl
         expires_at INTEGER NOT NULL,
         created_at INTEGER NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS user_bins (
-        issuer TEXT NOT NULL,
-        subject TEXT NOT NULL,
-        bin_id TEXT NOT NULL UNIQUE,
-        created_at INTEGER NOT NULL,
-        PRIMARY KEY (issuer, subject, bin_id)
-      );
       CREATE TABLE IF NOT EXISTS storage_bins (
         id TEXT PRIMARY KEY,
         visibility TEXT NOT NULL,
@@ -533,7 +526,7 @@ async function onAuthBins(req, res) {
   const database = await getDatabase();
   if (!principal || !database) return unauthenticated(res);
   const bins = await database.all(
-    'SELECT bin_id FROM user_bins WHERE issuer = ? AND subject = ? ORDER BY created_at DESC',
+    'SELECT id AS bin_id FROM storage_bins WHERE owner_issuer = ? AND owner_subject = ? ORDER BY created_at DESC',
     [principal.issuer, principal.subject],
   );
   res.writeHead(200, jsonHeaders).end(JSON.stringify(bins.map((bin) => bin.bin_id)));
@@ -545,10 +538,10 @@ async function readAuthState(req) {
     if (!profile) return { profile: null, binList: [] };
     const database = await getDatabase();
     const bins = database
-      ? await database.all('SELECT bin_id FROM user_bins WHERE issuer = ? AND subject = ? ORDER BY created_at DESC', [
-          profile.iss || authIssuer,
-          profile.sub,
-        ])
+      ? await database.all(
+          'SELECT id AS bin_id FROM storage_bins WHERE owner_issuer = ? AND owner_subject = ? ORDER BY created_at DESC',
+          [profile.iss || authIssuer, profile.sub],
+        )
       : [];
     return { profile, binList: bins.map((bin) => bin.bin_id) };
   } catch {
@@ -860,12 +853,6 @@ async function onCreateBin(req, res) {
       );
     }
     if (principal && database) {
-      await database.run('INSERT INTO user_bins (issuer, subject, bin_id, created_at) VALUES (?, ?, ?, ?)', [
-        principal.issuer,
-        principal.subject,
-        binId,
-        Date.now(),
-      ]);
       await audit(req, 'bin.create', binId);
     }
     res.setHeader('location', String(new URL('/bin/' + binId, getProxyHost(req))));
