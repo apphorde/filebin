@@ -108,28 +108,46 @@
             {{ fileSize(file.size) }} <span class="mx-1 text-slate-300">|</span> {{ fileDate(file.lastModified) }}
           </p>
         </div>
-        <div class="flex shrink-0 items-center gap-1">
-          <a
-            class="hidden h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-white hover:text-indigo-600 md:inline-flex"
-            target="_blank"
-            bind-href="file.url"
-            title="Download"
-            ><lucide-icon icon="download" size="16"></lucide-icon><span class="sr-only">Download</span></a
-          >
+        <div class="shrink-0">
           <button
-            class="hidden h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-white hover:text-indigo-600 md:inline-flex"
-            on-click="onRename(file)"
-            title="Rename"
+            class="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-white hover:text-indigo-600"
+            type="button"
+            on-click.stop="toggleMenu(file)"
+            aria-label="File actions"
           >
-            <lucide-icon icon="pencil" size="16"></lucide-icon><span class="sr-only">Rename</span>
+            <lucide-icon icon="ellipsis" size="18"></lucide-icon>
           </button>
-          <button
-            class="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-600"
-            on-click="onDelete(file)"
-            title="Remove"
+          <div
+            attr-id="'file-menu-' + file.id"
+            popover="auto"
+            class="z-30 w-44 rounded-2xl border border-indigo-100 bg-white p-1.5 text-sm shadow-xl"
+            on-click.stop
           >
-            <lucide-icon icon="trash" size="17"></lucide-icon><span class="sr-only">Remove</span>
-          </button>
+            <button
+              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
+              on-click.stop="onDetails(file)"
+            >
+              <lucide-icon icon="info" size="15"></lucide-icon>Show details
+            </button>
+            <a
+              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
+              target="_blank"
+              bind-href="file.url"
+              ><lucide-icon icon="download" size="15"></lucide-icon>Download</a
+            >
+            <button
+              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
+              on-click.stop="onRename(file)"
+            >
+              <lucide-icon icon="pencil" size="15"></lucide-icon>Rename
+            </button>
+            <button
+              class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-red-600 hover:bg-red-50"
+              on-click.stop="onDelete(file)"
+            >
+              <lucide-icon icon="trash" size="15"></lucide-icon>Delete
+            </button>
+          </div>
         </div>
       </article>
       <style>
@@ -146,6 +164,7 @@
 
           const onRename = defineEvent('rename');
           const onDelete = defineEvent('delete');
+          const onDetails = defineEvent('details');
 
           function fileDate(d) {
             if (!d) return 'Just now';
@@ -156,6 +175,10 @@
 
           function isImage(file) {
             return String(file.type || '').startsWith('image/') || /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(file.name);
+          }
+
+          function toggleMenu(file) {
+            document.getElementById(`file-menu-${file.id}`)?.togglePopover();
           }
 
           function displayName(name) {
@@ -187,8 +210,10 @@
             fileDate,
             displayName,
             isImage,
+            toggleMenu,
             onRename,
             onDelete,
+            onDetails,
           };
         }
       </script>
@@ -287,9 +312,11 @@
           const lockPasswordConfirm = templateRef('lockpasswordconfirm');
           const unlockPasswordInput = templateRef('unlockpassword');
           const binActionDialog = templateRef('binactiondialog');
+          const fileDetailsDialog = templateRef('filedetailsdialog');
           const dragOverlay = templateRef('dragoverlay');
           const partialFiles = ref([]);
           const selectedBin = ref(null);
+          const selectedFile = ref(null);
           const binAction = ref('rename');
 
           onInit(async () => {
@@ -386,6 +413,28 @@
               await writeMetadata(bin, id, { ...meta, name });
               fileRef.name = name;
             }
+          }
+
+          function openFileDetails(file) {
+            selectedFile.value = file;
+            fileDetailsDialog.value.showModal();
+          }
+
+          function onCopyFileUrl() {
+            navigator.clipboard.writeText(selectedFile.value.url);
+          }
+
+          function isImage(file) {
+            return (
+              String(file?.type || '').startsWith('image/') || /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(file?.name)
+            );
+          }
+
+          function formatFileDate(value) {
+            if (!value) return 'Just now';
+            return new Intl.DateTimeFormat(undefined, { month: 'long', day: 'numeric', year: 'numeric' }).format(
+              new Date(value),
+            );
           }
 
           function openBinAction(bin, action) {
@@ -590,6 +639,7 @@
             locked,
             protectedBin,
             lockError,
+            selectedFile,
             getBinUrl,
             uploadFiles,
             updateList,
@@ -607,6 +657,10 @@
             onDrop,
             onRename,
             onDelete,
+            openFileDetails,
+            onCopyFileUrl,
+            isImage,
+            formatFileDate,
             onHomeClick,
             openBinAction,
             openCurrentBinAction,
@@ -978,6 +1032,7 @@
                     bind-file="file"
                     on-rename="onRename(file)"
                     on-delete="onDelete(file)"
+                    on-details="openFileDetails(file)"
                   ></file-row>
                 </template>
               </div>
@@ -1307,6 +1362,67 @@
             </button>
           </div>
         </form>
+      </dialog>
+      <dialog ref="filedetailsdialog">
+        <section
+          class="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-[2rem] border border-indigo-100 bg-white p-5 shadow-2xl md:p-7"
+          aria-labelledby="filedetails-title"
+        >
+          <template if="selectedFile">
+            <div class="mb-6 flex items-start gap-4">
+              <div class="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-indigo-50">
+                <template if="isImage(selectedFile)"
+                  ><img class="h-full w-full object-cover" bind-src="selectedFile.url" attr-alt="selectedFile.name"
+                /></template>
+                <template if="!isImage(selectedFile)"
+                  ><lucide-icon icon="file-text" size="30" icon-classes="text-indigo-500"></lucide-icon
+                ></template>
+              </div>
+              <div class="min-w-0 flex-1 pt-1">
+                <p class="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">File details</p>
+                <h2 id="filedetails-title" class="mt-1 break-words text-xl font-black text-slate-900">
+                  {{ selectedFile.name }}
+                </h2>
+              </div>
+            </div>
+            <dl class="grid grid-cols-2 gap-3 border-y border-indigo-50 py-5 text-sm">
+              <div>
+                <dt class="text-slate-500">Size</dt>
+                <dd class="mt-1 font-bold">{{ formatSize(selectedFile.size) }}</dd>
+              </div>
+              <div>
+                <dt class="text-slate-500">Type</dt>
+                <dd class="mt-1 truncate font-bold">{{ selectedFile.type || 'Unknown' }}</dd>
+              </div>
+              <div class="col-span-2">
+                <dt class="text-slate-500">Uploaded</dt>
+                <dd class="mt-1 font-bold">{{ formatFileDate(selectedFile.lastModified) }}</dd>
+              </div>
+            </dl>
+            <div class="mt-5 grid grid-cols-2 gap-3">
+              <a
+                class="reference-primary inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-white hover:bg-blue-600"
+                target="_blank"
+                bind-href="selectedFile.url"
+                ><lucide-icon icon="download" size="16"></lucide-icon>Download</a
+              >
+              <button
+                class="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-bold text-indigo-700 hover:bg-indigo-100"
+                on-click="onCopyFileUrl()"
+              >
+                <lucide-icon icon="link" size="16"></lucide-icon>Copy link
+              </button>
+            </div>
+          </template>
+          <button
+            class="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
+            type="button"
+            on-click="closeFileDetails()"
+            aria-label="Close details"
+          >
+            <lucide-icon icon="x" size="18"></lucide-icon>
+          </button>
+        </section>
       </dialog>
       <dialog ref="filedialog">
         <form
