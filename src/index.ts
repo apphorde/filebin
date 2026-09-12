@@ -585,7 +585,7 @@ async function readAuthState(req) {
     const bins = database
       ? await listOwnedBins(database, { issuer: profile.iss || authIssuer, subject: profile.sub })
       : [];
-    return { profile, binList: bins.map((bin) => bin.bin_id) };
+    return { profile, binList: bins };
   } catch {
     return { profile: null, binList: [] };
   }
