@@ -63,7 +63,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { type: string, format: uuid }
+                items: { $ref: '#/components/schemas/BinSummary' }
         '401': { description: No authenticated session }
   /admin/cleanup:
     post:
@@ -491,6 +491,14 @@ components:
       required: [binId]
       properties:
         binId: { type: string }
+    BinSummary:
+      type: object
+      required: [id, visibility, size, protected]
+      properties:
+        id: { type: string, format: uuid }
+        visibility: { type: string, enum: [public, private] }
+        size: { type: integer, minimum: 0 }
+        protected: { type: boolean }
     BinDeletionScheduled:
       type: object
       required: [binId, deletionGraceHours]

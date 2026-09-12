@@ -441,14 +441,17 @@ async function getPrincipal(req) {
 }
 
 async function listOwnedBins(database, principal) {
-  return database.all(
-    `SELECT id AS bin_id
-     FROM storage_bins
-     WHERE rtrim(replace(owner_issuer, '"', ''), '/') = rtrim(?, '/')
-       AND replace(owner_subject, '"', '') = ?
-     ORDER BY created_at DESC`,
+  const bins = await database.all(
+    `SELECT b.id, b.visibility, COALESCE(SUM(f.size), 0) AS size
+     FROM storage_bins b
+     LEFT JOIN storage_files f ON f.bin_id = b.id
+     WHERE rtrim(replace(b.owner_issuer, '"', ''), '/') = rtrim(?, '/')
+       AND replace(b.owner_subject, '"', '') = ?
+     GROUP BY b.id, b.visibility
+     ORDER BY b.created_at DESC`,
     [principal.issuer, principal.subject],
   );
+  return Promise.all(bins.map(async (bin) => ({ ...bin, protected: await isBinLocked(bin.id) })));
 }
 
 async function getStorageBin(binId: string) {
@@ -570,8 +573,8 @@ async function onAuthBins(req, res) {
   const principal = await getPrincipal(req);
   const database = await getDatabase();
   if (!principal || !database) return unauthenticated(res);
-  const bins = await listOwnedBins(database, principal);
-  res.writeHead(200, jsonHeaders).end(JSON.stringify(bins.map((bin) => bin.bin_id)));
+  const summaries = await listOwnedBins(database, principal);
+  res.writeHead(200, jsonHeaders).end(JSON.stringify(summaries));
 }
 
 async function readAuthState(req) {
