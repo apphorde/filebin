@@ -49,6 +49,8 @@ const hello = await (await fetch(url)).text();
 File metadata names may use slash-separated relative paths (for example,
 `photos/2026/image.jpg`). Folder paths are retained when importing or exporting
 ZIP archives. The web UI also supports selecting and uploading a directory.
+Bins keep UUID identifiers for URLs and API operations, while the web UI assigns
+each bin a generated display name that can be renamed without changing its URL.
 
 ### Public and private bins
 

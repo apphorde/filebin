@@ -22,6 +22,55 @@ const authIssuer = process.env.AUTH_PROVIDER?.replace(/\/+$/, '');
 const oidcClientId = process.env.OIDC_CLIENT_ID;
 const oidcClientSecret = process.env.OIDC_CLIENT_SECRET;
 const databaseModuleUrl = process.env.DATABASE_URL;
+const binAdjectives = [
+  'Amber',
+  'Bright',
+  'Calm',
+  'Cedar',
+  'Coral',
+  'Cosmic',
+  'Dawn',
+  'Dewy',
+  'Golden',
+  'Ivy',
+  'Jolly',
+  'Lucky',
+  'Maple',
+  'Misty',
+  'Ocean',
+  'Quiet',
+  'River',
+  'Silver',
+  'Sunny',
+  'Velvet',
+];
+const binNouns = [
+  'Acorn',
+  'Brook',
+  'Comet',
+  'Cove',
+  'Fern',
+  'Harbor',
+  'Hearth',
+  'Island',
+  'Lagoon',
+  'Meadow',
+  'Moon',
+  'Orchard',
+  'Pebble',
+  'Pine',
+  'Sparrow',
+  'Star',
+  'Summit',
+  'Willow',
+  'Woodland',
+  'Wren',
+];
+
+function generateBinName() {
+  return `${binAdjectives[randomBytes(1)[0] % binAdjectives.length]} ${binNouns[randomBytes(1)[0] % binNouns.length]}`;
+}
+
 const publicBinRetentionMs = Number(process.env.PUBLIC_BIN_RETENTION_HOURS || 168) * 60 * 60 * 1000;
 const publicBinCleanupToken = process.env.PUBLIC_BIN_CLEANUP_TOKEN;
 const binDeletionGraceMs = Number(process.env.BIN_DELETION_GRACE_HOURS || 168) * 60 * 60 * 1000;
@@ -61,9 +110,10 @@ const databasePromise = databaseModuleUrl
         expires_at INTEGER NOT NULL,
         created_at INTEGER NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS storage_bins (
-        id TEXT PRIMARY KEY,
-        visibility TEXT NOT NULL,
+       CREATE TABLE IF NOT EXISTS storage_bins (
+         id TEXT PRIMARY KEY,
+         name TEXT NOT NULL,
+         visibility TEXT NOT NULL,
         owner_issuer TEXT,
         owner_subject TEXT,
         created_at INTEGER NOT NULL,
@@ -94,9 +144,15 @@ const databasePromise = databaseModuleUrl
         created_at INTEGER NOT NULL
       );
     `);
-        for (const column of ['deletion_requested_at', 'deletion_expires_at']) {
-          await database.exec(`ALTER TABLE storage_bins ADD COLUMN ${column} INTEGER`).catch(() => {});
+        for (const column of ['name TEXT', 'deletion_requested_at INTEGER', 'deletion_expires_at INTEGER']) {
+          await database.exec(`ALTER TABLE storage_bins ADD COLUMN ${column}`).catch(() => {});
         }
+        const unnamedBins = await database.all(`SELECT id FROM storage_bins WHERE name IS NULL OR name = ''`);
+        await Promise.all(
+          unnamedBins.map((bin) =>
+            database.run('UPDATE storage_bins SET name = ? WHERE id = ?', [generateBinName(), bin.id]),
+          ),
+        );
         for (const column of ['access_token', 'refresh_token']) {
           await database.exec(`ALTER TABLE oidc_sessions ADD COLUMN ${column} TEXT`).catch(() => {});
         }
@@ -482,7 +538,7 @@ async function getPrincipal(req) {
 
 async function listOwnedBins(database, principal) {
   const bins = await database.all(
-    `SELECT b.id, b.visibility, COALESCE(SUM(f.size), 0) AS size
+    `SELECT b.id, b.name, b.visibility, COALESCE(SUM(f.size), 0) AS size
      FROM storage_bins b
      LEFT JOIN storage_files f ON f.bin_id = b.id
      WHERE rtrim(replace(b.owner_issuer, '"', ''), '/') = rtrim(?, '/')
@@ -551,8 +607,8 @@ async function importDiskCatalog() {
     const uploadTimes = await Promise.all(completed.map(async (file) => (await stat(join(binPath, file))).mtimeMs));
     const lastCompletedUploadAt = uploadTimes.length ? Math.max(...uploadTimes) : null;
     await database.run(
-      'INSERT OR IGNORE INTO storage_bins (id, visibility, created_at, last_completed_upload_at, imported_at) VALUES (?, ?, ?, ?, ?)',
-      [entry.name, 'public', binStats.birthtimeMs || binStats.mtimeMs, lastCompletedUploadAt, now],
+      'INSERT OR IGNORE INTO storage_bins (id, name, visibility, created_at, last_completed_upload_at, imported_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [entry.name, generateBinName(), 'public', binStats.birthtimeMs || binStats.mtimeMs, lastCompletedUploadAt, now],
     );
     for (const fileId of completed) {
       const filePath = join(binPath, fileId);
@@ -929,21 +985,22 @@ async function onReadBin(_req, res, args) {
 async function onCreateBin(req, res) {
   tryCatch(res, async () => {
     const binId = randomUUID();
+    const name = generateBinName();
     await ensureDir(join(rootDir, binId));
     const principal = await getPrincipal(req);
     const database = await getDatabase();
     if (database) {
       const now = Date.now();
       await database.run(
-        'INSERT INTO storage_bins (id, visibility, owner_issuer, owner_subject, created_at) VALUES (?, ?, ?, ?, ?)',
-        [binId, principal ? 'private' : 'public', principal?.issuer || null, principal?.subject || null, now],
+        'INSERT INTO storage_bins (id, name, visibility, owner_issuer, owner_subject, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [binId, name, principal ? 'private' : 'public', principal?.issuer || null, principal?.subject || null, now],
       );
     }
     if (principal && database) {
       await audit(req, 'bin.create', binId);
     }
     res.setHeader('location', String(new URL('/bin/' + binId, getProxyHost(req))));
-    res.writeHead(201).end(JSON.stringify({ binId }));
+    res.writeHead(201).end(JSON.stringify({ binId, name }));
   });
 }
 
@@ -980,8 +1037,17 @@ function onRenameBin(req, res, args) {
 }
 
 async function onRenameBinPatch(req, res, args) {
-  const { newId = '', visibility } = await readJson(req);
+  const { newId = '', name, visibility } = await readJson(req);
   if (newId) return onRenameBin(req, res, { ...args, newId });
+  if (typeof name === 'string') {
+    const value = name.trim();
+    if (!value || value.length > 80) return badRequest(res);
+    const database = await getDatabase();
+    if (!database || !(await getStorageBin(args.binId))) return res.writeHead(404).end('Not found');
+    await database.run('UPDATE storage_bins SET name = ? WHERE id = ?', [value, args.binId]);
+    await audit(req, 'bin.name.updated', args.binId);
+    return res.writeHead(204).end();
+  }
   if (!['public', 'private'].includes(visibility)) return badRequest(res);
 
   const bin = await getStorageBin(args.binId);
@@ -1089,22 +1155,25 @@ function serializeState(state) {
 function onGetUI(req, res, args) {
   tryCatch(res, async () => {
     const { binId } = args;
+    const requestedBinId = binId || new URL(req.url, 'http://localhost').searchParams.get('bin');
     let state: any = await readAuthState(req);
 
-    if (binId) {
+    if (requestedBinId) {
       const baseUrl = getProxyHost(req);
-      const fileIds = await readBin(binId);
+      const fileIds = await readBin(requestedBinId);
 
       if (fileIds === null) {
         return notFound(res);
       }
 
-      const locked = await isBinLocked(binId);
-      const unlocked = !locked || (await isBinAuthorized(req, binId));
-      const files = unlocked ? await Promise.all(fileIds.map((x) => readMetadata(binId, x, baseUrl))) : [];
+      const locked = await isBinLocked(requestedBinId);
+      const unlocked = !locked || (await isBinAuthorized(req, requestedBinId));
+      const files = unlocked ? await Promise.all(fileIds.map((x) => readMetadata(requestedBinId, x, baseUrl))) : [];
+      const bin = await getStorageBin(requestedBinId);
 
       state = {
         ...state,
+        binName: bin?.name || '',
         files,
         filesLoaded: true,
         locked,

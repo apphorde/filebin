@@ -56,6 +56,23 @@ export async function renameBin(bin, newId) {
 
 /**
  * @param {string} bin
+ * @param {string} name
+ * @returns {Promise<boolean>} OK
+ */
+export async function renameBinName(bin, name) {
+  const req = await fetch(u(`/bin/${bin}`), {
+    method: 'PATCH',
+    mode: 'cors',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+
+  return req.ok || Promise.reject(new Error('Failed to rename bin'));
+}
+
+/**
+ * @param {string} bin
  * @param {'public' | 'private'} visibility
  * @returns {Promise<boolean>} OK
  */

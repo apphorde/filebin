@@ -182,7 +182,7 @@
           createFile,
           writeFile,
           removeFile,
-          renameBin,
+          renameBinName,
           getBinLock,
           unlockBin,
           setBinPassword,
@@ -206,6 +206,7 @@
           );
           const appStart = computed(() => !isHelp && !isLanding && !binId.value);
           const binList = ref([]);
+          const binName = ref('');
           const files = ref([]);
           const filesLoaded = ref(false);
           const loading = ref(false);
@@ -241,7 +242,11 @@
           const protectedBin = ref(false);
           const currentBin = computed(
             () =>
-              binList.value.find((bin) => bin.id === binId.value) || { id: binId.value, protected: protectedBin.value },
+              binList.value.find((bin) => bin.id === binId.value) || {
+                id: binId.value,
+                name: binName.value,
+                protected: protectedBin.value,
+              },
           );
           const canChangeVisibility = computed(() => binList.value.some((bin) => bin.id === binId.value));
           const lockError = ref('');
@@ -322,10 +327,6 @@
             if (profile.value) binList.value = await getMyBins();
           }
 
-          async function storeNewBinId(binId, newId) {
-            binList.value = binList.value.map((bin) => (bin.id === binId ? { ...bin, id: newId } : bin));
-          }
-
           async function onAddBin(newTab = false) {
             creating.value = true;
 
@@ -358,15 +359,6 @@
             }
           }
 
-          async function onRenameBin(binId) {
-            const newId = prompt('New name', binId);
-
-            if (newId) {
-              await renameBin(binId, newId);
-              await storeNewBinId(binId, newId);
-            }
-          }
-
           function openBinAction(bin, action) {
             selectedBin.value = bin;
             binAction.value = action;
@@ -378,7 +370,7 @@
               if (action === 'rename') {
                 requestAnimationFrame(() => {
                   const input = document.getElementById('binactioninput');
-                  if (input && !input.value) input.value = bin.id;
+                  if (input && !input.value) input.value = bin.name || bin.id;
                 });
               }
             }
@@ -399,16 +391,11 @@
             if (!bin) return;
             try {
               if (binAction.value === 'rename') {
-                const newId = document.getElementById('binactioninput')?.value.trim();
-                if (!newId) return;
-                const activeBin = bin.id === binId.value;
-                await renameBin(bin.id, newId);
-                bin.id = newId;
-                if (activeBin) {
-                  localStorage.setItem('binId', newId);
-                  location.href = getBinUrl(newId);
-                  return;
-                }
+                const name = document.getElementById('binactioninput')?.value.trim();
+                if (!name) return;
+                await renameBinName(bin.id, name);
+                bin.name = name;
+                if (bin.id === binId.value) binName.value = name;
               } else if (confirm(`Delete bin ${bin.id}?`)) {
                 await removeBin(bin.id);
                 binList.value = binList.value.filter((item) => item.id !== bin.id);
@@ -559,6 +546,7 @@
             files,
             filesLoaded,
             binId,
+            binName,
             binList,
             currentBin,
             canChangeVisibility,
@@ -591,7 +579,6 @@
             onRename,
             onDelete,
             onHomeClick,
-            onRenameBin,
             openBinAction,
             openCurrentBinAction,
             onSetBinVisibility,

@@ -121,7 +121,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [bins]
-      summary: Rename a bin or update its visibility
+      summary: Update a bin name or visibility
       operationId: updateBin
       security: [{ basicAuth: [] }, { unlockCookie: [] }]
       requestBody:
@@ -132,6 +132,7 @@ paths:
               type: object
               properties:
                 newId: { type: string, pattern: '^[a-zA-Z0-9-]+$' }
+                name: { type: string, minLength: 1, maxLength: 80 }
                 visibility: { type: string, enum: [public, private] }
       responses:
         '202':
@@ -140,7 +141,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/BinCreated' }
         '204':
-          description: Bin visibility updated
+          description: Bin name or visibility updated
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Locked' }
     delete:
@@ -490,14 +491,16 @@ components:
   schemas:
     BinCreated:
       type: object
-      required: [binId]
+      required: [binId, name]
       properties:
         binId: { type: string }
+        name: { type: string }
     BinSummary:
       type: object
-      required: [id, visibility, size, protected]
+      required: [id, name, visibility, size, protected]
       properties:
         id: { type: string, format: uuid }
+        name: { type: string }
         visibility: { type: string, enum: [public, private] }
         size: { type: integer, minimum: 0 }
         protected: { type: boolean }

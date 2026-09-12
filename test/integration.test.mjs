@@ -26,7 +26,9 @@ async function createBin() {
   const response = await fetch(`${baseUrl}/bin`, { method: 'POST' });
   assert.equal(response.status, 201);
   assert.match(response.headers.get('location'), /\/bin\//);
-  return (await response.json()).binId;
+  const bin = await response.json();
+  assert.match(bin.name, /^[A-Z][a-z]+ [A-Z][a-z]+$/);
+  return bin.binId;
 }
 
 async function createFile(binId, metadata = {}) {
