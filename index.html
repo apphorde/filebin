@@ -623,14 +623,6 @@
               <lucide-icon icon="plus" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
               <span class="hidden md:inline">New bin</span>
             </button>
-            <button
-              class="reference-primary h-10 w-10 p-0 text-sm text-white inline-flex items-center justify-center gap-2 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none md:w-auto md:px-4"
-              on-click="filedialog.showModal()"
-              aria-label="Upload files"
-            >
-              <lucide-icon icon="upload" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-              <span class="hidden md:inline">Upload files</span>
-            </button>
             <div>
               <template if="profile">
                 <span
@@ -787,16 +779,17 @@
                 <span class="sr-only">Upload folder</span>
               </button>
               <button
-                class="reference-primary inline-flex items-center justify-center gap-2 rounded-xl text-sm font-bold ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 text-white hover:bg-blue-600 h-9 px-4 py-1"
+                class="reference-primary inline-flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 text-white hover:bg-blue-600"
                 type="button"
                 on-click="filedialog.showModal()"
+                aria-label="Upload files"
                 aria-haspopup="dialog"
                 aria-expanded="false"
                 aria-controls="radix-:upload:"
                 data-state="closed"
               >
                 <lucide-icon icon="upload" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-                <span>Upload files</span>
+                <span class="sr-only">Upload files</span>
               </button>
               <a
                 class="inline-flex items-center justify-center rounded-xl text-sm font-semibold border border-indigo-100 bg-white/80 text-indigo-600 hover:bg-white h-9 px-3 py-1"
