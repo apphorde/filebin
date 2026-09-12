@@ -8,6 +8,41 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="component" href="https://sodium.static.apphor.de/lucide-icon.html" />
+    <style>
+      :root {
+        --filebin-ink: #10162f;
+        --filebin-blue: #3154c8;
+        --filebin-lavender: #edf1ff;
+      }
+
+      body {
+        background: var(--filebin-lavender);
+        color: var(--filebin-ink);
+      }
+
+      .reference-screen {
+        background:
+          radial-gradient(circle at 15% 10%, #ffffff 0, transparent 30%),
+          linear-gradient(145deg, #eef1ff 0%, #e4eaff 45%, #f6f2ff 100%);
+      }
+
+      .reference-panel {
+        border-color: rgba(136, 153, 214, 0.28);
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow: 0 18px 45px rgba(78, 99, 178, 0.1);
+        backdrop-filter: blur(14px);
+      }
+
+      .reference-primary {
+        background: var(--filebin-blue);
+        box-shadow: 0 10px 22px rgba(49, 84, 200, 0.24);
+      }
+
+      .reference-card {
+        border-color: rgba(147, 163, 211, 0.25);
+        box-shadow: 0 8px 22px rgba(78, 99, 178, 0.08);
+      }
+    </style>
     <script type="importmap">
       {
         "imports": {
@@ -535,7 +570,7 @@
         </div>
 
         <div
-          class="bg-gray-100 flex items-center justify-between border-b px-3 md:px-6 w-full py-2.5"
+          class="reference-panel flex items-center justify-between border-b px-3 md:px-6 w-full py-2.5"
           class-hidden="isLanding"
         >
           <a class="flex items-center gap-2 font-semibold" href="#" on-click="onHomeClick()"
@@ -598,10 +633,7 @@
           </div>
         </div>
 
-        <main
-          class="flex flex-1 items-center justify-center bg-gradient-to-br from-blue-50 via-white to-pink-50 px-6 py-12"
-          class-hidden="!isLanding"
-        >
+        <main class="reference-screen flex flex-1 items-center justify-center px-6 py-12" class-hidden="!isLanding">
           <div class="w-full max-w-5xl">
             <div class="mb-16 flex items-center justify-between">
               <a class="flex items-center gap-3 text-lg font-bold" href="/app">
@@ -685,7 +717,7 @@
         </main>
 
         <main
-          class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6"
+          class="reference-screen flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6"
           class-hidden="isLanding || isHelp || !binId || locked"
         >
           <div class="flex items-center justify-between">
@@ -739,7 +771,7 @@
               </button>
             </div>
           </div>
-          <div class="border shadow-sm rounded-md w-full overflow-x-auto">
+          <div class="reference-panel border shadow-sm rounded-2xl w-full overflow-x-auto p-1">
             <table class="w-full caption-bottom text-sm">
               <thead class="[&_tr]:border-b">
                 <tr class="border-b transition-colors">
@@ -924,7 +956,10 @@
             </p>
           </section>
         </main>
-        <main class="flex flex-1 items-center justify-center px-4 py-8 md:px-6" class-hidden="!appStart">
+        <main
+          class="reference-screen flex flex-1 items-center justify-center px-4 py-8 md:px-6"
+          class-hidden="!appStart"
+        >
           <template if="binList?.length">
             <div class="w-full max-w-5xl min-w-0">
               <div class="grid w-full min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
