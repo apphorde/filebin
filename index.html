@@ -190,8 +190,12 @@
           const lockPasswordInput = templateRef('lockpassword');
           const lockPasswordConfirm = templateRef('lockpasswordconfirm');
           const unlockPasswordInput = templateRef('unlockpassword');
+          const binActionDialog = templateRef('binactiondialog');
+          const binActionInput = templateRef('binactioninput');
           const dragOverlay = templateRef('dragoverlay');
           const partialFiles = ref([]);
+          const selectedBin = ref(null);
+          const binAction = ref('rename');
 
           onInit(async () => {
             if (!profile.value) {
@@ -301,23 +305,41 @@
             }
           }
 
+          function openBinAction(bin, action) {
+            selectedBin.value = bin;
+            binAction.value = action;
+            if (action === 'protect') {
+              lockdialog.showModal();
+            } else {
+              binActionInput.value.value = action === 'rename' ? bin.id : '';
+              binActionDialog.value.showModal();
+            }
+          }
+
+          async function onBinActionSubmit() {
+            const bin = selectedBin.value;
+            if (!bin) return;
+            try {
+              if (binAction.value === 'rename') {
+                const newId = binActionInput.value.value.trim();
+                if (!newId) return;
+                await renameBin(bin.id, newId);
+                bin.id = newId;
+              } else if (confirm(`Delete bin ${bin.id}?`)) {
+                await removeBin(bin.id);
+                binList.value = binList.value.filter((item) => item.id !== bin.id);
+              }
+              binActionDialog.value.close();
+            } catch (error) {
+              lockError.value = error.message;
+            }
+          }
+
           function formatSize(bytes) {
             if (!bytes) return 'Empty';
             if (bytes < 1024) return `${bytes} B`;
             if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
             return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-          }
-
-          async function onToggleProtection(bin) {
-            if (bin.protected) {
-              if (!confirm('Remove password protection from this bin?')) return;
-              await removeBinPassword(bin.id);
-            } else {
-              const password = prompt('Password (at least 8 characters)');
-              if (!password) return;
-              await setBinPassword(bin.id, password);
-            }
-            bin.protected = !bin.protected;
           }
 
           async function onDelete(fileRef) {
@@ -363,6 +385,7 @@
 
           async function onSetPassword() {
             const password = lockPasswordInput.value.value;
+            const targetBin = selectedBin.value?.id || binId.value;
 
             if (password !== lockPasswordConfirm.value.value) {
               lockError.value = 'Passwords do not match';
@@ -370,7 +393,7 @@
             }
 
             try {
-              await setBinPassword(binId.value, password);
+              await setBinPassword(targetBin, password);
               protectedBin.value = true;
               lockError.value = '';
               lockPasswordInput.value.value = '';
@@ -383,7 +406,7 @@
 
           async function onRemovePassword() {
             if (!confirm('Remove password protection from this bin?')) return;
-            await removeBinPassword(binId.value);
+            await removeBinPassword(selectedBin.value?.id || binId.value);
             protectedBin.value = false;
             lockDialog.value.close();
           }
@@ -477,8 +500,9 @@
             onDelete,
             onHomeClick,
             onRenameBin,
+            openBinAction,
+            onBinActionSubmit,
             formatSize,
-            onToggleProtection,
             signIn,
             signOut,
             profile,
@@ -898,35 +922,69 @@
         <main class="flex flex-1 items-center justify-center px-4 py-8 md:px-6" class-hidden="!appStart">
           <template if="binList?.length">
             <div class="w-full max-w-5xl min-w-0">
-              <div class="grid w-full min-w-0 gap-2">
+              <div class="grid w-full min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <template for="bin of binList">
-                  <article class="min-w-0 w-full rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="truncate text-sm font-medium text-gray-900">{{ bin.id }}</span>
-                      <span class="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                        {{ bin.visibility === 'private' ? 'Private' : 'Public' }}
-                      </span>
-                    </div>
-                    <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
-                      <span>{{ formatSize(bin.size) }}</span>
-                    </div>
-                    <div class="mt-3 flex gap-2">
-                      <a
-                        class="inline-flex flex-1 items-center justify-center rounded-md bg-blue-700 px-2 py-1.5 text-xs font-medium text-white hover:bg-blue-800"
-                        bind-href="getBinUrl(bin.id)"
-                        aria-label="Open bin"
-                        title="Open bin"
-                      >
-                        <lucide-icon icon="arrow-right" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-                      </a>
-                      <button
-                        bind-class="bin.protected ? 'bg-yellow-50 border-yellow-300 text-yellow-900 hover:bg-yellow-100' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'"
-                        on-click="onToggleProtection(bin)"
-                        attr-aria-label="bin.protected ? 'Unprotect bin' : 'Protect bin'"
-                        attr-title="bin.protected ? 'Unprotect bin' : 'Protect bin'"
-                      >
-                        <lucide-icon icon="shield" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-                      </button>
+                  <article
+                    class="group min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-blue-300 hover:shadow-md"
+                  >
+                    <div class="flex items-start gap-3">
+                      <lucide-icon
+                        icon="folder"
+                        size="22"
+                        icon-classes="mt-0.5 h-5 w-5 shrink-0 text-blue-600"
+                      ></lucide-icon>
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-start justify-between gap-2">
+                          <a
+                            class="min-w-0 truncate text-sm font-semibold text-gray-900 hover:text-blue-700"
+                            bind-href="getBinUrl(bin.id)"
+                            title="Open bin"
+                          >
+                            {{ bin.id }}
+                          </a>
+                          <details class="relative shrink-0">
+                            <summary
+                              class="flex h-7 w-7 cursor-pointer list-none items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                              aria-label="Bin actions"
+                            >
+                              <lucide-icon icon="ellipsis" size="14" icon-classes="h-4 w-4"></lucide-icon>
+                            </summary>
+                            <div
+                              class="absolute right-0 z-20 mt-1 w-40 rounded-lg border border-gray-200 bg-white p-1 text-sm shadow-lg"
+                            >
+                              <button
+                                class="block w-full rounded px-3 py-2 text-left hover:bg-gray-100"
+                                on-click="openBinAction(bin, 'rename')"
+                              >
+                                Rename
+                              </button>
+                              <button
+                                class="block w-full rounded px-3 py-2 text-left hover:bg-gray-100"
+                                on-click="openBinAction(bin, 'protect')"
+                              >
+                                {{ bin.protected ? 'Unprotect' : 'Protect' }}
+                              </button>
+                              <button
+                                class="block w-full rounded px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                on-click="openBinAction(bin, 'delete')"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </details>
+                        </div>
+                        <div class="mt-3 flex items-center gap-2 text-xs text-gray-500">
+                          <span>{{ formatSize(bin.size) }}</span>
+                          <span class="rounded-full bg-gray-100 px-2 py-0.5"
+                            >{{ bin.visibility === 'private' ? 'Private' : 'Public' }}</span
+                          >
+                          <span
+                            class="rounded-full bg-yellow-50 px-2 py-0.5 text-yellow-800"
+                            class-hidden="!bin.protected"
+                            >Protected</span
+                          >
+                        </div>
+                      </div>
                     </div>
                   </article>
                 </template>
@@ -986,6 +1044,29 @@
           </template>
         </main>
       </div>
+      <dialog ref="binactiondialog">
+        <form
+          class="w-full max-w-sm rounded-lg border bg-white p-6 shadow-lg"
+          on-submit.stop.prevent="onBinActionSubmit()"
+        >
+          <h2 class="mb-4 text-lg font-semibold">{{ binAction === 'rename' ? 'Rename bin' : 'Delete bin' }}</h2>
+          <template if="binAction === 'rename'">
+            <label class="mb-2 block text-sm font-medium" for="binactioninput">Bin name</label>
+            <input id="binactioninput" ref="binactioninput" required class="h-10 w-full rounded-md border px-3" />
+          </template>
+          <template if="binAction === 'delete'">
+            <p class="text-sm text-gray-600">
+              This bin will be scheduled for deletion and can be restored during the grace period.
+            </p>
+          </template>
+          <div class="mt-5 flex justify-end gap-2">
+            <button class="rounded-md border px-4 py-2" type="button" on-click="binactiondialog.close()">Cancel</button>
+            <button class="rounded-md bg-blue-700 px-4 py-2 text-white" type="submit">
+              {{ binAction === 'rename' ? 'Rename' : 'Schedule deletion' }}
+            </button>
+          </div>
+        </form>
+      </dialog>
       <dialog ref="filedialog">
         <form
           on-submit.stop.prevent="onUpload()"
