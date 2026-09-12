@@ -56,6 +56,23 @@ export async function renameBin(bin, newId) {
 
 /**
  * @param {string} bin
+ * @param {'public' | 'private'} visibility
+ * @returns {Promise<boolean>} OK
+ */
+export async function setBinVisibility(bin, visibility) {
+  const req = await fetch(u(`/bin/${bin}`), {
+    method: 'PATCH',
+    mode: 'cors',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ visibility }),
+  });
+
+  return req.ok || Promise.reject(new Error('Failed to update bin visibility'));
+}
+
+/**
+ * @param {string} bin
  * @returns {Promise<string[]>} file ids
  */
 export async function listFiles(bin) {

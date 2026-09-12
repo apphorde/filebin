@@ -980,8 +980,21 @@ function onRenameBin(req, res, args) {
 }
 
 async function onRenameBinPatch(req, res, args) {
-  const { newId = '' } = await readJson(req);
-  return onRenameBin(req, res, { ...args, newId });
+  const { newId = '', visibility } = await readJson(req);
+  if (newId) return onRenameBin(req, res, { ...args, newId });
+  if (!['public', 'private'].includes(visibility)) return badRequest(res);
+
+  const bin = await getStorageBin(args.binId);
+  const principal = await getPrincipal(req);
+  if (!bin || !principal || bin.owner_issuer !== principal.issuer || bin.owner_subject !== principal.subject) {
+    return unauthenticated(res);
+  }
+
+  const database = await getDatabase();
+  if (!database) return res.writeHead(503).end('Database unavailable');
+  await database.run('UPDATE storage_bins SET visibility = ? WHERE id = ?', [visibility, args.binId]);
+  await audit(req, `bin.visibility.${visibility}`, args.binId);
+  res.writeHead(204).end();
 }
 
 async function onDeleteFile(_req, res, args) {

@@ -188,6 +188,7 @@
           setBinPassword,
           removeBinPassword,
           getMyBins,
+          setBinVisibility,
         } from 'filebin';
 
         export default function setup() {
@@ -238,6 +239,11 @@
           const creating = ref(false);
           const locked = ref(false);
           const protectedBin = ref(false);
+          const currentBin = computed(
+            () =>
+              binList.value.find((bin) => bin.id === binId.value) || { id: binId.value, protected: protectedBin.value },
+          );
+          const canChangeVisibility = computed(() => binList.value.some((bin) => bin.id === binId.value));
           const lockError = ref('');
           const fileUploadDialog = templateRef('filedialog');
           const fileUploadInput = templateRef('fileupload');
@@ -376,6 +382,16 @@
             }
           }
 
+          function openCurrentBinAction(action) {
+            openBinAction(currentBin.value, action);
+          }
+
+          async function onSetBinVisibility(visibility) {
+            const bin = currentBin.value;
+            await setBinVisibility(bin.id, visibility);
+            bin.visibility = visibility;
+          }
+
           async function onBinActionSubmit() {
             const bin = selectedBin.value;
             if (!bin) return;
@@ -383,11 +399,22 @@
               if (binAction.value === 'rename') {
                 const newId = binActionInput.value.value.trim();
                 if (!newId) return;
+                const activeBin = bin.id === binId.value;
                 await renameBin(bin.id, newId);
                 bin.id = newId;
+                if (activeBin) {
+                  localStorage.setItem('binId', newId);
+                  location.href = getBinUrl(newId);
+                  return;
+                }
               } else if (confirm(`Delete bin ${bin.id}?`)) {
                 await removeBin(bin.id);
                 binList.value = binList.value.filter((item) => item.id !== bin.id);
+                if (binId.value === bin.id) {
+                  localStorage.removeItem('binId');
+                  location.href = '/app';
+                  return;
+                }
               }
               binActionDialog.value.close();
             } catch (error) {
@@ -531,6 +558,8 @@
             filesLoaded,
             binId,
             binList,
+            currentBin,
+            canChangeVisibility,
             dragging,
             creating,
             sortedFiles,
@@ -561,6 +590,8 @@
             onHomeClick,
             onRenameBin,
             openBinAction,
+            openCurrentBinAction,
+            onSetBinVisibility,
             onBinActionSubmit,
             openBin,
             formatSize,
@@ -764,12 +795,13 @@
                 <lucide-icon icon="arrow-left" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
                 <span class="sr-only">Back</span>
               </button>
-              <div>
+              <div class="min-w-0">
                 <p class="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">File space</p>
-                <h1 class="font-black text-xl md:text-3xl truncate">{{ currentFolder || 'Your Files' }}</h1>
+                <h1 class="font-black text-xl md:text-3xl truncate">{{ binId }}</h1>
+                <p class="mt-0.5 text-sm text-slate-500" class-hidden="!currentFolder">{{ currentFolder }}</p>
               </div>
             </div>
-            <div>
+            <div class="flex items-center gap-2">
               <button
                 class="inline-flex items-center justify-center rounded-xl text-sm font-semibold border border-indigo-100 bg-white/80 h-9 px-3 py-1 text-indigo-700"
                 type="button"
@@ -791,21 +823,64 @@
                 <lucide-icon icon="upload" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
                 <span class="sr-only">Upload files</span>
               </button>
-              <a
-                class="inline-flex items-center justify-center rounded-xl text-sm font-semibold border border-indigo-100 bg-white/80 text-indigo-600 hover:bg-white h-9 px-3 py-1"
-                attr-href="'/zip/' + binId"
-              >
-                <lucide-icon icon="archive" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-                <span class="sr-only">Download zip</span>
-              </a>
               <button
-                class="inline-flex items-center justify-center rounded-xl text-sm font-semibold border border-indigo-100 bg-white/80 h-9 px-3 py-1 text-indigo-700"
+                class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-white/80 text-indigo-700 hover:bg-white"
                 type="button"
-                on-click="lockdialog.showModal()"
+                popovertarget="current-bin-menu"
+                aria-label="Bin actions"
               >
-                <lucide-icon icon="shield" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-                <span class="sr-only">{{ protectedBin ? 'Protection' : 'Protect bin' }}</span>
+                <lucide-icon icon="ellipsis" size="16"></lucide-icon>
               </button>
+              <div
+                id="current-bin-menu"
+                popover="auto"
+                class="z-30 w-56 rounded-2xl border border-indigo-100 bg-white p-1.5 text-sm shadow-xl"
+              >
+                <div class="border-b border-indigo-50 px-3 py-2">
+                  <p class="truncate font-bold">{{ binId }}</p>
+                  <p class="mt-0.5 text-xs text-slate-500">
+                    {{ currentBin.visibility === 'private' ? 'Private bin' : 'Public bin' }}
+                  </p>
+                </div>
+                <button
+                  class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
+                  on-click="openCurrentBinAction('rename')"
+                >
+                  <lucide-icon icon="pencil" size="15"></lucide-icon>Rename bin
+                </button>
+                <button
+                  class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
+                  on-click="openCurrentBinAction('protect')"
+                >
+                  <lucide-icon icon="shield" size="15"></lucide-icon>{{ protectedBin ? 'Change protection' : 'Protect
+                  bin' }}
+                </button>
+                <a
+                  class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
+                  attr-href="'/zip/' + binId"
+                  ><lucide-icon icon="archive" size="15"></lucide-icon>Download ZIP</a
+                >
+                <button
+                  class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
+                  class-hidden="!canChangeVisibility || currentBin.visibility === 'private'"
+                  on-click="onSetBinVisibility('private')"
+                >
+                  <lucide-icon icon="lock" size="15"></lucide-icon>Make private
+                </button>
+                <button
+                  class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
+                  class-hidden="!canChangeVisibility || currentBin.visibility !== 'private'"
+                  on-click="onSetBinVisibility('public')"
+                >
+                  <lucide-icon icon="globe-2" size="15"></lucide-icon>Make public
+                </button>
+                <button
+                  class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                  on-click="openCurrentBinAction('delete')"
+                >
+                  <lucide-icon icon="trash-2" size="15"></lucide-icon>Delete bin
+                </button>
+              </div>
             </div>
           </div>
           <div class="reference-panel border rounded-[1.5rem] w-full overflow-x-auto p-2 md:p-3">

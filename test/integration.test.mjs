@@ -489,7 +489,7 @@ test('OpenAPI JSON endpoint returns JSON', async () => {
 
 test('UI, module, manifest, icon, and YAML specification are served', async () => {
   const resources = [
-    ['/', /Protect bin/],
+    ['/', /Bin actions/],
     ['/index.mjs', /export async function unlockBin/],
     ['/manifest.webmanifest', /"start_url": "\/app"/],
     ['/icon.svg', /<svg/],

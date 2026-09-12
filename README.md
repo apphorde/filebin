@@ -59,7 +59,8 @@ Public bins are limited to 5 MiB per file and 50 completed files.
 
 Sign in before creating a bin to create a private bin. Private bins are owned
 by the authenticated user and are the basis for future sharing permissions and
-storage plans. A public bin cannot be converted to a private bin, which avoids
+storage plans. Owned bins can be switched between public and private from the
+web app. An unclaimed public bin cannot be converted to private, which avoids
 granting ownership based only on knowledge of a bin ID.
 
 At startup, FileBin imports existing disk bins, committed files, metadata, system
