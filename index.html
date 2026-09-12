@@ -253,18 +253,15 @@
           const lockPasswordConfirm = templateRef('lockpasswordconfirm');
           const unlockPasswordInput = templateRef('unlockpassword');
           const binActionDialog = templateRef('binactiondialog');
-          const binActionInput = templateRef('binactioninput');
           const dragOverlay = templateRef('dragoverlay');
           const partialFiles = ref([]);
           const selectedBin = ref(null);
           const binAction = ref('rename');
 
           onInit(async () => {
-            if (!profile.value) {
-              const response = await fetch('/auth/profile');
-              if (response.ok) profile.value = await response.json();
-            }
-            if (profile.value && !binList.value.length) {
+            const response = await fetch('/auth/profile', { credentials: 'include' });
+            profile.value = response.ok ? await response.json() : null;
+            if (profile.value) {
               binList.value = await getMyBins();
             }
 
@@ -375,10 +372,15 @@
             binAction.value = action;
             document.getElementById(`bin-menu-${bin.id}`)?.hidePopover();
             if (action === 'protect') {
-              lockdialog.showModal();
+              lockDialog.value.showModal();
             } else {
-              binActionInput.value.value = action === 'rename' ? bin.id : '';
               binActionDialog.value.showModal();
+              if (action === 'rename') {
+                requestAnimationFrame(() => {
+                  const input = document.getElementById('binactioninput');
+                  if (input && !input.value) input.value = bin.id;
+                });
+              }
             }
           }
 
@@ -397,7 +399,7 @@
             if (!bin) return;
             try {
               if (binAction.value === 'rename') {
-                const newId = binActionInput.value.value.trim();
+                const newId = document.getElementById('binactioninput')?.value.trim();
                 if (!newId) return;
                 const activeBin = bin.id === binId.value;
                 await renameBin(bin.id, newId);
@@ -560,6 +562,7 @@
             binList,
             currentBin,
             canChangeVisibility,
+            binAction,
             dragging,
             creating,
             sortedFiles,
@@ -688,12 +691,22 @@
                 <img src="/icon.svg" alt="File Bin" class="h-10 w-10 rounded-xl" />
                 <span>File Bin</span>
               </a>
-              <a
-                class="rounded-xl border border-indigo-200 bg-white/70 px-4 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-white"
-                href="/app"
-              >
-                Open the app
-              </a>
+              <template if="profile">
+                <a
+                  class="rounded-xl border border-indigo-200 bg-white/70 px-4 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-white"
+                  href="/app"
+                >
+                  My bins
+                </a>
+              </template>
+              <template if="!profile">
+                <a
+                  class="rounded-xl border border-indigo-200 bg-white/70 px-4 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-white"
+                  href="/app"
+                >
+                  Open the app
+                </a>
+              </template>
               <a class="sr-only" href="/help" aria-label="Help">Help</a>
             </div>
             <div class="grid items-center gap-10 lg:grid-cols-[1.05fr_0.95fr]">
@@ -781,7 +794,7 @@
         </main>
 
         <main
-          class="reference-screen flex flex-1 flex-col gap-5 p-4 md:gap-7 md:p-8"
+          class="reference-screen flex flex-1 flex-col gap-5 p-4 pb-24 md:gap-7 md:p-8"
           class-hidden="isLanding || isHelp || !binId || locked"
         >
           <div class="flex items-center justify-between">
@@ -844,13 +857,13 @@
                 </div>
                 <button
                   class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
-                  on-click="openCurrentBinAction('rename')"
+                  on-click.stop="openCurrentBinAction('rename')"
                 >
                   <lucide-icon icon="pencil" size="15"></lucide-icon>Rename bin
                 </button>
                 <button
                   class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
-                  on-click="openCurrentBinAction('protect')"
+                  on-click.stop="openCurrentBinAction('protect')"
                 >
                   <lucide-icon icon="shield" size="15"></lucide-icon>{{ protectedBin ? 'Change protection' : 'Protect
                   bin' }}
@@ -863,26 +876,47 @@
                 <button
                   class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
                   class-hidden="!canChangeVisibility || currentBin.visibility === 'private'"
-                  on-click="onSetBinVisibility('private')"
+                  on-click.stop="onSetBinVisibility('private')"
                 >
                   <lucide-icon icon="lock" size="15"></lucide-icon>Make private
                 </button>
                 <button
                   class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
                   class-hidden="!canChangeVisibility || currentBin.visibility !== 'private'"
-                  on-click="onSetBinVisibility('public')"
+                  on-click.stop="onSetBinVisibility('public')"
                 >
-                  <lucide-icon icon="globe-2" size="15"></lucide-icon>Make public
+                  <lucide-icon icon="globe" size="15"></lucide-icon>Make public
                 </button>
                 <button
                   class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-red-600 hover:bg-red-50"
-                  on-click="openCurrentBinAction('delete')"
+                  on-click.stop="openCurrentBinAction('delete')"
                 >
-                  <lucide-icon icon="trash-2" size="15"></lucide-icon>Delete bin
+                  <lucide-icon icon="trash" size="15"></lucide-icon>Delete bin
                 </button>
               </div>
             </div>
           </div>
+          <section
+            class="reference-primary flex items-center gap-4 rounded-[1.75rem] p-5 text-white shadow-lg shadow-indigo-200"
+          >
+            <div
+              class="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-8 border-white/20 bg-white/10"
+            >
+              <lucide-icon icon="folder" size="24"></lucide-icon>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-white/75">Your file space</p>
+              <p class="truncate text-xl font-black">Ready to share</p>
+              <p class="mt-1 text-xs text-white/75">Keep adding files, folders, and ZIP archives.</p>
+            </div>
+            <button
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 hover:bg-white/25"
+              on-click="onCopyUrl()"
+              aria-label="Copy bin link"
+            >
+              <lucide-icon icon="link" size="17"></lucide-icon>
+            </button>
+          </section>
           <div class="reference-panel border rounded-[1.5rem] w-full overflow-x-auto p-2 md:p-3">
             <table class="w-full caption-bottom text-sm">
               <thead class="[&_tr]:border-b">
@@ -938,6 +972,31 @@
             </table>
           </div>
         </main>
+        <nav
+          class="fixed inset-x-0 bottom-0 z-20 flex items-center justify-around border-t border-indigo-100 bg-white/95 px-3 py-2 shadow-[0_-8px_28px_rgba(61,83,165,0.1)] backdrop-blur md:hidden"
+          class-hidden="isLanding || isHelp || !binId || locked"
+          aria-label="File navigation"
+        >
+          <button
+            class="flex min-w-14 flex-col items-center gap-1 text-xs font-semibold text-slate-500"
+            on-click="onHomeClick()"
+          >
+            <lucide-icon icon="home" size="19"></lucide-icon><span>Home</span>
+          </button>
+          <a class="flex min-w-14 flex-col items-center gap-1 text-xs font-bold text-indigo-600" attr-href="getBinUrl()"
+            ><lucide-icon icon="folder" size="19"></lucide-icon><span>Files</span></a
+          >
+          <button
+            class="reference-primary -mt-6 flex h-12 w-12 items-center justify-center rounded-full border-4 border-white text-white"
+            on-click="onAddBin()"
+            aria-label="New bin"
+          >
+            <lucide-icon icon="plus" size="20"></lucide-icon>
+          </button>
+          <a class="flex min-w-14 flex-col items-center gap-1 text-xs font-semibold text-slate-500" href="/help"
+            ><lucide-icon icon="circle-question-mark" size="19"></lucide-icon><span>Help</span></a
+          >
+        </nav>
         <aside
           class="flex flex-1 items-center justify-center p-6"
           class-hidden="isLanding || isHelp || !binId || !locked"
