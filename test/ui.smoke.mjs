@@ -43,3 +43,15 @@ test('bin actions open the rename dialog', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Rename bin' })).toBeVisible();
   await expect(page.locator('#binactioninput')).toHaveValue(binId);
 });
+
+test('image uploads render a thumbnail preview', async ({ page }) => {
+  const { binId } = await page.request.post('/bin').then(async (response) => await response.json());
+  const { fileId } = await page.request
+    .post(`/f/${binId}`, { data: { name: 'sunset.png', type: 'image/png', lastModified: Date.now() } })
+    .then(async (response) => await response.json());
+
+  await page.request.put(`/f/${binId}/${fileId}`, { data: 'image fixture' });
+  await page.goto(`/app?bin=${binId}`, { waitUntil: 'networkidle' });
+
+  await expect(page.locator('img[alt="sunset.png"]')).toHaveAttribute('src', new RegExp(`/f/${binId}/${fileId}$`));
+});

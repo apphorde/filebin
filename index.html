@@ -75,47 +75,66 @@
   </head>
   <body class="h-screen w-full flex flex-col relative">
     <template component="file-row">
-      <tr
-        class="border-b transition-colors hover:bg-gray-100"
+      <article
+        class="flex items-center gap-3 rounded-2xl px-2 py-2 transition hover:bg-indigo-50/70"
         class-opacity-40="partial"
         attr-data-bin="file.bin"
         attr-data-id="file.id"
       >
-        <td class="px-4 py-2 align-middle font-medium">
-          <a bind-href="file.url" attr-download="file.name">{{ displayName(file.name) }}</a>
-        </td>
-        <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileDate(file.lastModified) }}</td>
-        <td class="px-4 py-2 align-middle hidden md:table-cell">{{ fileSize(file.size) }}</td>
-        <td class="px-4 align-middle text-right">
-          <div class="flex">
-            <a
-              class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
-              target="_blank"
-              bind-href="file.url"
-            >
-              <lucide-icon icon="download" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-              <span class="sr-only">Download</span>
-            </a>
-            <button
-              class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
-              on-click="onDelete(file)"
-            >
-              <lucide-icon icon="trash" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-              <span class="sr-only">Remove</span>
-            </button>
-            <button
-              class="inline-flex items-center justify-center text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
-              on-click="onRename(file)"
-            >
-              <lucide-icon icon="pencil" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-              <span class="sr-only">Rename</span>
-            </button>
-          </div>
-        </td>
-      </tr>
+        <a
+          class="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-indigo-50"
+          bind-href="file.url"
+          attr-download="file.name"
+        >
+          <template if="isImage(file)"
+            ><img
+              class="h-full w-full object-cover"
+              bind-src="file.url"
+              attr-alt="displayName(file.name)"
+              loading="lazy"
+          /></template>
+          <template if="!isImage(file)"
+            ><lucide-icon icon="file-text" size="24" icon-classes="text-indigo-500"></lucide-icon
+          ></template>
+        </a>
+        <div class="min-w-0 flex-1">
+          <a
+            class="block truncate font-bold text-slate-900 hover:text-indigo-600"
+            bind-href="file.url"
+            attr-download="file.name"
+            >{{ displayName(file.name) }}</a
+          >
+          <p class="mt-1 text-sm text-slate-500">
+            {{ fileSize(file.size) }} <span class="mx-1 text-slate-300">|</span> {{ fileDate(file.lastModified) }}
+          </p>
+        </div>
+        <div class="flex shrink-0 items-center gap-1">
+          <a
+            class="hidden h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-white hover:text-indigo-600 md:inline-flex"
+            target="_blank"
+            bind-href="file.url"
+            title="Download"
+            ><lucide-icon icon="download" size="16"></lucide-icon><span class="sr-only">Download</span></a
+          >
+          <button
+            class="hidden h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-white hover:text-indigo-600 md:inline-flex"
+            on-click="onRename(file)"
+            title="Rename"
+          >
+            <lucide-icon icon="pencil" size="16"></lucide-icon><span class="sr-only">Rename</span>
+          </button>
+          <button
+            class="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-600"
+            on-click="onDelete(file)"
+            title="Remove"
+          >
+            <lucide-icon icon="trash" size="17"></lucide-icon><span class="sr-only">Remove</span>
+          </button>
+        </div>
+      </article>
       <style>
         file-row {
-          display: contents;
+          display: block;
         }
       </style>
       <script setup="">
@@ -129,7 +148,14 @@
           const onDelete = defineEvent('delete');
 
           function fileDate(d) {
-            return new Date(d).toISOString().slice(0, 19).replace('T', ' ');
+            if (!d) return 'Just now';
+            return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(
+              new Date(d),
+            );
+          }
+
+          function isImage(file) {
+            return String(file.type || '').startsWith('image/') || /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(file.name);
           }
 
           function displayName(name) {
@@ -153,13 +179,14 @@
               return `${(bytes / oneMB).toFixed(2)}MB`;
             }
 
-            return 'WTF?';
+            return `${(bytes / oneGB).toFixed(2)}GB`;
           }
 
           return {
             fileSize,
             fileDate,
             displayName,
+            isImage,
             onRename,
             onDelete,
           };
@@ -234,7 +261,9 @@
             });
             return [...new Set(names)].sort();
           });
-          const sortedFiles = computed(() => Array.from(visibleFiles.value).sort((a, b) => (a.name > b.name ? 1 : -1)));
+          const sortedFiles = computed(() =>
+            Array.from(visibleFiles.value).sort((a, b) => Number(b.lastModified || 0) - Number(a.lastModified || 0)),
+          );
           const profile = ref(null);
           const dragging = ref(false);
           const creating = ref(false);
@@ -905,47 +934,43 @@
             </button>
           </section>
           <div class="reference-panel border rounded-[1.5rem] w-full overflow-x-auto p-2 md:p-3">
-            <table class="w-full caption-bottom text-sm">
-              <thead class="[&_tr]:border-b">
-                <tr class="border-b border-indigo-50 transition-colors">
-                  <th class="h-12 px-4 text-left align-middle font-bold text-slate-500">Name</th>
-                  <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground hidden md:table-cell">
-                    Last modified
-                  </th>
-                  <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground hidden md:table-cell">
-                    Size
-                  </th>
-                  <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground w-1">&nbsp;</th>
-                </tr>
-              </thead>
-              <tbody class="[&_tr:last-child]:border-0">
-                <template if="loading">
-                  <td colspan="4" class="p-8 text-center">Loading your files...</td>
-                </template>
-                <template if="!loading && !sortedFiles?.length && !folders?.length">
-                  <td colspan="4" class="p-10 text-center">
-                    <span class="filebin-icon-tile mb-4"
-                      ><lucide-icon icon="cloud-upload" size="22"></lucide-icon
-                    ></span>
-                    <p class="block mb-3 font-semibold">New files will appear here once you start uploading.</p>
-                    <button
-                      class="reference-primary inline-flex items-center justify-center gap-2 rounded-xl text-sm font-bold text-white hover:bg-blue-600 h-9 px-4 py-1"
-                      on-click="filedialog.showModal()"
-                    >
-                      <lucide-icon icon="upload" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-                      <span>Upload files</span>
-                    </button>
-                  </td>
-                </template>
+            <div class="flex items-center justify-between px-3 pb-3 pt-2">
+              <h2 class="text-lg font-black">Recent uploads</h2>
+              <span class="text-sm font-medium text-slate-500">{{ files?.length || 0 }} items</span>
+            </div>
+            <div class="border-t border-indigo-50 pt-2">
+              <template if="loading">
+                <p class="p-8 text-center text-slate-500">Loading your files...</p>
+              </template>
+              <template if="!loading && !sortedFiles?.length && !folders?.length">
+                <div class="p-10 text-center">
+                  <span class="filebin-icon-tile mb-4"><lucide-icon icon="cloud-upload" size="22"></lucide-icon></span>
+                  <p class="block mb-3 font-semibold">New files will appear here once you start uploading.</p>
+                  <button
+                    class="reference-primary inline-flex items-center justify-center gap-2 rounded-xl text-sm font-bold text-white hover:bg-blue-600 h-9 px-4 py-1"
+                    on-click="filedialog.showModal()"
+                  >
+                    <lucide-icon icon="upload" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
+                    <span>Upload files</span>
+                  </button>
+                </div>
+              </template>
+              <div class="space-y-1">
                 <template for="folder of folders">
-                  <tr class="border-b transition-colors hover:bg-gray-100">
-                    <td class="px-4 py-2 align-middle font-medium" colspan="4">
-                      <button class="flex items-center gap-2 w-full text-left" on-click="openFolder(folder)">
-                        <lucide-icon icon="folder" size="14" icon-classes="h-5 w-5"></lucide-icon>
-                        {{ folder }}
-                      </button>
-                    </td>
-                  </tr>
+                  <button
+                    class="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left transition hover:bg-indigo-50/70"
+                    on-click="openFolder(folder)"
+                  >
+                    <span
+                      class="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-500"
+                      ><lucide-icon icon="folder" size="24"></lucide-icon
+                    ></span>
+                    <span class="min-w-0 flex-1"
+                      ><span class="block truncate font-bold text-slate-900">{{ folder }}</span
+                      ><span class="mt-1 block text-sm text-slate-500">Folder</span></span
+                    >
+                    <lucide-icon icon="chevron-right" size="18" icon-classes="mr-2 text-slate-300"></lucide-icon>
+                  </button>
                 </template>
                 <template for="file of sortedFiles">
                   <file-row
@@ -955,8 +980,8 @@
                     on-delete="onDelete(file)"
                   ></file-row>
                 </template>
-              </tbody>
-            </table>
+              </div>
+            </div>
           </div>
         </main>
         <nav
