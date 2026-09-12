@@ -25,6 +25,7 @@ const databaseModuleUrl = process.env.DATABASE_URL;
 const publicBinRetentionMs = Number(process.env.PUBLIC_BIN_RETENTION_HOURS || 168) * 60 * 60 * 1000;
 const publicBinCleanupToken = process.env.PUBLIC_BIN_CLEANUP_TOKEN;
 const binDeletionGraceMs = Number(process.env.BIN_DELETION_GRACE_HOURS || 168) * 60 * 60 * 1000;
+const sessionCookieMaxAge = 30 * 24 * 60 * 60;
 const oidcMissingConfiguration = [
   !authIssuer && 'AUTH_PROVIDER',
   !oidcClientId && 'OIDC_CLIENT_ID',
@@ -55,6 +56,8 @@ const databasePromise = databaseModuleUrl
       CREATE TABLE IF NOT EXISTS oidc_sessions (
         id TEXT PRIMARY KEY,
         profile TEXT NOT NULL,
+        access_token TEXT,
+        refresh_token TEXT,
         expires_at INTEGER NOT NULL,
         created_at INTEGER NOT NULL
       );
@@ -93,6 +96,9 @@ const databasePromise = databaseModuleUrl
     `);
         for (const column of ['deletion_requested_at', 'deletion_expires_at']) {
           await database.exec(`ALTER TABLE storage_bins ADD COLUMN ${column} INTEGER`).catch(() => {});
+        }
+        for (const column of ['access_token', 'refresh_token']) {
+          await database.exec(`ALTER TABLE oidc_sessions ADD COLUMN ${column} TEXT`).catch(() => {});
         }
         return database;
       })
@@ -388,15 +394,19 @@ async function getOidcProfile(auth, tokens): Promise<any> {
     throw new Error('OIDC provider did not return both ID and access tokens');
   }
   const claims: any = await auth.verifyToken(tokens.id_token);
+  const profile = await getOidcUserInfo(tokens.access_token);
+  return { ...profile, sub: profile.sub || claims.sub, iss: profile.iss || claims.iss };
+}
+
+async function getOidcUserInfo(accessToken: string): Promise<any> {
   const response = await fetch(new URL('/userinfo', authIssuer), {
     headers: {
-      authorization: `Bearer ${tokens.access_token}`,
+      authorization: `Bearer ${accessToken}`,
       'x-auth-audience': oidcClientId,
     },
   });
   if (!response.ok) throw new Error(`Could not load profile: ${response.status}`);
-  const profile: any = await response.json();
-  return { ...profile, sub: profile.sub || claims.sub, iss: profile.iss || claims.iss };
+  return response.json();
 }
 
 async function getDatabase() {
@@ -421,6 +431,36 @@ function setCookie(req, res, name: string, value: string, maxAge: number) {
   res.setHeader('set-cookie', existing ? [...(Array.isArray(existing) ? existing : [existing]), cookie] : cookie);
 }
 
+async function refreshOidcSession(database, session) {
+  if (!session.refresh_token || !oidcClientSecret || !oidcClientId) return null;
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: session.refresh_token,
+    client_id: oidcClientId,
+    client_secret: oidcClientSecret,
+  });
+  const response = await fetch(new URL('/token', authIssuer), {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+  if (!response.ok) return null;
+  const tokens: any = await response.json();
+  const profile = tokens.access_token ? await getOidcUserInfo(tokens.access_token) : JSON.parse(session.profile);
+  const expiresAt = Date.now() + (Number(tokens.expires_in) || 300) * 1000;
+  await database.run(
+    'UPDATE oidc_sessions SET profile = ?, access_token = ?, refresh_token = ?, expires_at = ? WHERE id = ?',
+    [
+      JSON.stringify(profile),
+      tokens.access_token,
+      tokens.refresh_token || session.refresh_token,
+      expiresAt,
+      session.id,
+    ],
+  );
+  return profile;
+}
+
 async function getSessionProfile(req) {
   const raw = getCookie(req, 'filebin_session');
   if (!raw) return null;
@@ -429,10 +469,10 @@ async function getSessionProfile(req) {
   const actual = Buffer.from(signature || '');
   if (!id || actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
   const database = await getDatabase();
-  const session =
-    database &&
-    (await database.get('SELECT profile FROM oidc_sessions WHERE id = ? AND expires_at > ?', [id, Date.now()]));
-  return session ? JSON.parse(session.profile) : null;
+  const session = database && (await database.get('SELECT * FROM oidc_sessions WHERE id = ?', [id]));
+  if (!session) return null;
+  if (session.expires_at > Date.now()) return JSON.parse(session.profile);
+  return refreshOidcSession(database, session).catch(() => null);
 }
 
 async function getPrincipal(req) {
@@ -606,7 +646,7 @@ async function onAuthLogin(req, res) {
   const redirectUri = `${origin}/auth/callback`;
   const authorization = auth.createAuthorizationRequest({ redirectUri });
   const authorizationUrl = new URL(authorization.url);
-  authorizationUrl.searchParams.set('scope', 'openid profile');
+  authorizationUrl.searchParams.set('scope', 'openid profile offline_access');
   const state = Buffer.from(
     JSON.stringify({ ...authorization, url: String(url), expires: Date.now() + 10 * 60 * 1000 }),
   ).toString('base64url');
@@ -636,13 +676,18 @@ async function onAuthCallback(req, res) {
   const id = randomUUID();
   const database = await getDatabase();
   if (!database) return res.writeHead(503).end('Database unavailable');
-  await database.run('INSERT INTO oidc_sessions (id, profile, expires_at, created_at) VALUES (?, ?, ?, ?)', [
-    id,
-    JSON.stringify(profile),
-    Date.now() + (Number(tokens.expires_in) || 3600) * 1000,
-    Date.now(),
-  ]);
-  setCookie(req, res, 'filebin_session', `${id}.${sign(id)}`, Number(tokens.expires_in) || 3600);
+  await database.run(
+    'INSERT INTO oidc_sessions (id, profile, access_token, refresh_token, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [
+      id,
+      JSON.stringify(profile),
+      tokens.access_token,
+      tokens.refresh_token || null,
+      Date.now() + (Number(tokens.expires_in) || 3600) * 1000,
+      Date.now(),
+    ],
+  );
+  setCookie(req, res, 'filebin_session', `${id}.${sign(id)}`, sessionCookieMaxAge);
   setCookie(req, res, 'filebin_oidc', '', 0);
   await audit(req, 'auth.login', profile.sub);
   res.writeHead(302, { location: saved.url }).end();
