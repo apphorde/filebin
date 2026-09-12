@@ -523,7 +523,7 @@ test('help page documents the command-line client', async () => {
 
   const landingPage = await (await fetch(`${baseUrl}/`)).text();
   assert.match(landingPage, /class-hidden="!isLanding"/);
-  assert.match(landingPage, /A little bin for all your files/);
+  assert.match(landingPage, /Storage that stays beautifully simple/);
 
   const appPage = await (await fetch(`${baseUrl}/app`)).text();
   assert.match(appPage, /Start with a fresh file bin/);

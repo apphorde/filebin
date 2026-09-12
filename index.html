@@ -4,43 +4,64 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FileBin</title>
-    <meta name="theme-color" content="#e91e63" />
+    <meta name="theme-color" content="#eef3ff" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="component" href="https://sodium.static.apphor.de/lucide-icon.html" />
     <style>
       :root {
-        --filebin-ink: #10162f;
-        --filebin-blue: #3154c8;
-        --filebin-lavender: #edf1ff;
+        --filebin-ink: #111a37;
+        --filebin-blue: #496ef0;
+        --filebin-lavender: #edf2ff;
+        --filebin-muted: #6d7690;
       }
 
       body {
         background: var(--filebin-lavender);
         color: var(--filebin-ink);
+        font-family: ui-rounded, 'Nunito Sans', 'Avenir Next', system-ui, sans-serif;
       }
 
       .reference-screen {
         background:
-          radial-gradient(circle at 15% 10%, #ffffff 0, transparent 30%),
-          linear-gradient(145deg, #eef1ff 0%, #e4eaff 45%, #f6f2ff 100%);
+          radial-gradient(circle at 0% 0%, rgba(255, 255, 255, 0.9) 0, transparent 27%),
+          radial-gradient(circle at 100% 8%, rgba(206, 215, 255, 0.7) 0, transparent 25%),
+          linear-gradient(145deg, #eff3ff 0%, #e6edff 48%, #f4efff 100%);
       }
 
       .reference-panel {
-        border-color: rgba(136, 153, 214, 0.28);
-        background: rgba(255, 255, 255, 0.82);
-        box-shadow: 0 18px 45px rgba(78, 99, 178, 0.1);
+        border-color: rgba(129, 146, 206, 0.18);
+        background: rgba(255, 255, 255, 0.88);
+        box-shadow: 0 18px 45px rgba(61, 83, 165, 0.12);
         backdrop-filter: blur(14px);
       }
 
       .reference-primary {
         background: var(--filebin-blue);
-        box-shadow: 0 10px 22px rgba(49, 84, 200, 0.24);
+        box-shadow: 0 10px 22px rgba(73, 110, 240, 0.28);
       }
 
       .reference-card {
-        border-color: rgba(147, 163, 211, 0.25);
-        box-shadow: 0 8px 22px rgba(78, 99, 178, 0.08);
+        border-color: rgba(147, 163, 211, 0.18);
+        box-shadow: 0 8px 22px rgba(67, 85, 151, 0.08);
+      }
+
+      .filebin-icon-tile {
+        display: inline-flex;
+        height: 2.75rem;
+        width: 2.75rem;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.9rem;
+        background: linear-gradient(145deg, #748eff, #496ef0);
+        color: white;
+        box-shadow: 0 7px 14px rgba(73, 110, 240, 0.2);
+      }
+
+      dialog::backdrop {
+        background: rgba(17, 26, 55, 0.32);
+        backdrop-filter: blur(3px);
       }
     </style>
     <script type="importmap">
@@ -570,11 +591,12 @@
         </div>
 
         <div
-          class="reference-panel flex items-center justify-between border-b px-3 md:px-6 w-full py-2.5"
+          class="reference-panel flex items-center justify-between border-b px-4 md:px-8 w-full py-3"
           class-hidden="isLanding"
         >
-          <a class="flex items-center gap-2 font-semibold" href="#" on-click="onHomeClick()"
-            ><img src="/icon.svg" alt="File Bin" class="h-8 w-8 rounded-lg" />
+          <a class="flex items-center gap-2 font-bold tracking-tight" href="#" on-click="onHomeClick()"
+            ><img src="/icon.svg" alt="File Bin" class="h-9 w-9 rounded-xl shadow-sm" />
+            <span class="hidden sm:inline">File Bin</span>
           </a>
           <a
             attr-href="getBinUrl()"
@@ -584,7 +606,7 @@
           >
           <div class="flex items-center justify-end gap-2">
             <a
-              class="h-9 w-9 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 border border-gray-300 bg-white hover:bg-gray-50 md:w-auto md:px-3"
+              class="h-10 w-10 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 border border-indigo-100 bg-white/80 hover:bg-white md:w-auto md:px-4"
               href="/help"
               aria-label="Help"
               title="Help"
@@ -593,7 +615,7 @@
               <span class="hidden md:inline">Help</span>
             </a>
             <button
-              class="h-9 w-9 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 disabled:pointer-events-none border border-gray-300 bg-white hover:bg-gray-50 md:w-auto md:px-3"
+              class="h-10 w-10 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none border border-indigo-100 bg-white/80 hover:bg-white md:w-auto md:px-4"
               on-click="onAddBin()"
               bind-disabled="creating"
               aria-label="New bin"
@@ -602,7 +624,7 @@
               <span class="hidden md:inline">New bin</span>
             </button>
             <button
-              class="h-9 w-9 p-0 text-sm text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-800 bg-blue-700 md:w-auto md:px-3"
+              class="reference-primary h-10 w-10 p-0 text-sm text-white inline-flex items-center justify-center gap-2 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none md:w-auto md:px-4"
               on-click="filedialog.showModal()"
               aria-label="Upload files"
             >
@@ -612,7 +634,7 @@
             <div>
               <template if="profile">
                 <span
-                  class="h-9 w-9 p-0 text-sm border-0 bg-transparent inline-flex items-center justify-center rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none md:w-auto md:px-2"
+                  class="h-10 w-10 p-0 text-sm border border-indigo-100 bg-white/80 inline-flex items-center justify-center rounded-xl font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none md:w-auto md:px-3"
                   aria-label="Signed in as {{ profile?.name }}"
                 >
                   <lucide-icon icon="user-round" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
@@ -621,7 +643,7 @@
               </template>
               <template if="!profile">
                 <button
-                  class="h-9 w-9 p-0 text-white inline-flex items-center justify-center gap-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 focus-visible:ring-offset-2 disabled:pointer-events-none border border-pink-700 bg-pink-600 hover:bg-pink-700 md:w-auto md:px-3"
+                  class="h-10 w-10 p-0 text-white inline-flex items-center justify-center gap-2 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-600 bg-blue-600 hover:bg-blue-700 md:w-auto md:px-4"
                   on-click="signIn(true)"
                   aria-label="Sign in"
                 >
@@ -633,34 +655,38 @@
           </div>
         </div>
 
-        <main class="reference-screen flex flex-1 items-center justify-center px-6 py-12" class-hidden="!isLanding">
-          <div class="w-full max-w-5xl">
-            <div class="mb-16 flex items-center justify-between">
+        <main
+          class="reference-screen flex flex-1 items-center justify-center px-5 py-8 md:px-8 md:py-12"
+          class-hidden="!isLanding"
+        >
+          <div class="w-full max-w-6xl">
+            <div class="mb-12 flex items-center justify-between md:mb-16">
               <a class="flex items-center gap-3 text-lg font-bold" href="/app">
                 <img src="/icon.svg" alt="File Bin" class="h-10 w-10 rounded-xl" />
                 <span>File Bin</span>
               </a>
               <a
-                class="rounded-md border border-blue-700 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
+                class="rounded-xl border border-indigo-200 bg-white/70 px-4 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-white"
                 href="/app"
               >
                 Open the app
               </a>
               <a class="sr-only" href="/help" aria-label="Help">Help</a>
             </div>
-            <div class="grid items-center gap-12 md:grid-cols-[1.1fr_0.9fr]">
+            <div class="grid items-center gap-10 lg:grid-cols-[1.05fr_0.95fr]">
               <div>
-                <p class="mb-4 text-sm font-semibold uppercase tracking-widest text-blue-700">Simple file sharing</p>
-                <h1 class="mb-6 max-w-xl text-5xl font-black tracking-tight text-gray-950 md:text-7xl">
-                  A little bin for all your files.
+                <p class="mb-4 text-sm font-bold uppercase tracking-[0.18em] text-indigo-600">
+                  Your files, in one calm place
+                </p>
+                <h1 class="mb-6 max-w-xl text-5xl font-black tracking-tight text-gray-950 md:text-7xl lg:text-8xl">
+                  Storage that stays beautifully simple.
                 </h1>
                 <p class="mb-8 max-w-lg text-lg leading-8 text-gray-600">
-                  Drop files into a private, shareable space. No folders to configure, no account required to get
-                  started.
+                  Make a space, add files, and share when you are ready. File Bin keeps the details out of your way.
                 </p>
                 <div class="flex flex-wrap gap-3">
                   <a
-                    class="inline-flex items-center gap-2 rounded-md bg-blue-700 px-5 py-3 font-medium text-white hover:bg-blue-800"
+                    class="reference-primary inline-flex items-center gap-2 rounded-2xl px-5 py-3.5 font-bold text-white hover:bg-blue-600"
                     href="/app"
                   >
                     Create a file bin
@@ -668,7 +694,7 @@
                   </a>
                   <template if="profile">
                     <a
-                      class="inline-flex items-center gap-2 rounded-md border border-blue-700 px-5 py-3 font-medium text-blue-700 hover:bg-blue-50"
+                      class="inline-flex items-center gap-2 rounded-2xl border border-indigo-200 bg-white/70 px-5 py-3.5 font-bold text-indigo-700 hover:bg-white"
                       href="/app"
                     >
                       See my bins
@@ -677,7 +703,7 @@
                   </template>
                   <template if="!profile">
                     <button
-                      class="inline-flex items-center gap-2 rounded-md border border-blue-700 px-5 py-3 font-medium text-blue-700 hover:bg-blue-50"
+                      class="inline-flex items-center gap-2 rounded-2xl border border-indigo-200 bg-white/70 px-5 py-3.5 font-bold text-indigo-700 hover:bg-white"
                       on-click="signIn()"
                     >
                       Sign in
@@ -686,44 +712,59 @@
                   </template>
                 </div>
               </div>
-              <div class="relative mx-auto w-full max-w-sm">
-                <div class="absolute -left-5 top-10 h-20 w-20 rounded-full bg-yellow-200"></div>
-                <div class="absolute -right-3 bottom-8 h-24 w-24 rounded-full bg-pink-200"></div>
-                <svg
-                  class="relative h-auto w-full"
-                  viewBox="0 0 360 300"
-                  role="img"
-                  aria-label="A cheerful file bin with floating files"
-                >
-                  <path d="M80 82h200l-18 158H98L80 82Z" fill="#2563eb" />
-                  <path d="M64 67c0-9 7-16 16-16h64l18 18h122c9 0 16 7 16 16v18H64V67Z" fill="#60a5fa" />
-                  <path d="M98 104h164l-12 108H110L98 104Z" fill="#dbeafe" />
-                  <path
-                    d="m130 144 26-26 24 24 22-18 30 32"
-                    fill="none"
-                    stroke="#2563eb"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="10"
-                  />
-                  <circle cx="237" cy="54" r="20" fill="#f9a8d4" />
-                  <path d="m237 43 3 8 9 1-7 6 2 9-7-5-8 5 2-9-7-6 9-1 4-8Z" fill="#fff" />
-                  <rect x="52" y="122" width="42" height="34" rx="6" fill="#fcd34d" transform="rotate(-18 52 122)" />
-                  <path d="m62 135 19-6" stroke="#fff" stroke-linecap="round" stroke-width="4" />
-                </svg>
+              <div class="relative mx-auto w-full max-w-md">
+                <div class="absolute -left-6 top-16 h-24 w-24 rounded-full bg-amber-200/70 blur-sm"></div>
+                <div class="absolute -right-4 bottom-8 h-28 w-28 rounded-full bg-fuchsia-200/70 blur-sm"></div>
+                <div class="reference-panel relative rounded-[2rem] border p-5 md:p-7">
+                  <div class="mb-7 flex items-center justify-between">
+                    <div>
+                      <p class="text-sm font-bold">Your storage</p>
+                      <p class="mt-1 text-xs text-gray-500">Everything, neatly together</p>
+                    </div>
+                    <span class="filebin-icon-tile"><lucide-icon icon="hard-drive" size="20"></lucide-icon></span>
+                  </div>
+                  <div
+                    class="rounded-3xl bg-gradient-to-br from-[#6688f8] to-[#496ef0] p-5 text-white shadow-lg shadow-indigo-200"
+                  >
+                    <div class="flex items-center gap-4">
+                      <div
+                        class="flex h-16 w-16 items-center justify-center rounded-full border-8 border-white/25 text-sm font-bold"
+                      >
+                        65%
+                      </div>
+                      <div>
+                        <p class="text-sm font-medium text-white/80">Space to create</p>
+                        <p class="text-2xl font-black">Ready for more</p>
+                      </div>
+                    </div>
+                    <div class="mt-6 h-2 overflow-hidden rounded-full bg-white/25">
+                      <div class="h-full w-[35%] rounded-full bg-white"></div>
+                    </div>
+                  </div>
+                  <div class="mt-5 grid grid-cols-2 gap-3">
+                    <div class="rounded-2xl bg-fuchsia-50 p-3">
+                      <lucide-icon icon="file-text" size="18" icon-classes="text-fuchsia-600"></lucide-icon>
+                      <p class="mt-2 text-sm font-bold">Documents</p>
+                    </div>
+                    <div class="rounded-2xl bg-emerald-50 p-3">
+                      <lucide-icon icon="image" size="18" icon-classes="text-emerald-600"></lucide-icon>
+                      <p class="mt-2 text-sm font-bold">Photos</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </main>
 
         <main
-          class="reference-screen flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-6"
+          class="reference-screen flex flex-1 flex-col gap-5 p-4 md:gap-7 md:p-8"
           class-hidden="isLanding || isHelp || !binId || locked"
         >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3 min-w-0">
               <button
-                class="border rounded h-8 px-3 text-sm"
+                class="rounded-xl border border-indigo-100 bg-white/80 h-9 px-3 text-sm text-indigo-700"
                 class-hidden="!currentFolder"
                 type="button"
                 on-click="openParentFolder()"
@@ -731,11 +772,14 @@
                 <lucide-icon icon="arrow-left" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
                 <span class="sr-only">Back</span>
               </button>
-              <h1 class="font-semibold text-lg md:text-2xl truncate">{{ currentFolder || 'Your Files' }}</h1>
+              <div>
+                <p class="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">File space</p>
+                <h1 class="font-black text-xl md:text-3xl truncate">{{ currentFolder || 'Your Files' }}</h1>
+              </div>
             </div>
             <div>
               <button
-                class="inline-flex items-center justify-center rounded text-sm font-medium border border-gray-400 h-8 px-3 py-1"
+                class="inline-flex items-center justify-center rounded-xl text-sm font-semibold border border-indigo-100 bg-white/80 h-9 px-3 py-1 text-indigo-700"
                 type="button"
                 on-click="folderupload.click()"
               >
@@ -743,7 +787,7 @@
                 <span class="sr-only">Upload folder</span>
               </button>
               <button
-                class="inline-flex items-center justify-center gap-2 rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-blue-800 bg-blue-700 text-white hover:bg-blue-800 h-8 px-3 py-1 border-0"
+                class="reference-primary inline-flex items-center justify-center gap-2 rounded-xl text-sm font-bold ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 text-white hover:bg-blue-600 h-9 px-4 py-1"
                 type="button"
                 on-click="filedialog.showModal()"
                 aria-haspopup="dialog"
@@ -755,14 +799,14 @@
                 <span>Upload files</span>
               </button>
               <a
-                class="inline-flex items-center justify-center rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-blue-500 text-blue-500 hover:bg-accent hover:text-accent-foreground h-8 px-3 py-1"
+                class="inline-flex items-center justify-center rounded-xl text-sm font-semibold border border-indigo-100 bg-white/80 text-indigo-600 hover:bg-white h-9 px-3 py-1"
                 attr-href="'/zip/' + binId"
               >
                 <lucide-icon icon="archive" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
                 <span class="sr-only">Download zip</span>
               </a>
               <button
-                class="inline-flex items-center justify-center rounded text-sm font-medium border border-gray-400 h-8 px-3 py-1"
+                class="inline-flex items-center justify-center rounded-xl text-sm font-semibold border border-indigo-100 bg-white/80 h-9 px-3 py-1 text-indigo-700"
                 type="button"
                 on-click="lockdialog.showModal()"
               >
@@ -771,11 +815,11 @@
               </button>
             </div>
           </div>
-          <div class="reference-panel border shadow-sm rounded-2xl w-full overflow-x-auto p-1">
+          <div class="reference-panel border rounded-[1.5rem] w-full overflow-x-auto p-2 md:p-3">
             <table class="w-full caption-bottom text-sm">
               <thead class="[&_tr]:border-b">
-                <tr class="border-b transition-colors">
-                  <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground">File Name</th>
+                <tr class="border-b border-indigo-50 transition-colors">
+                  <th class="h-12 px-4 text-left align-middle font-bold text-slate-500">Name</th>
                   <th class="h-12 px-4 text-left align-middle font-bold text-muted-foreground hidden md:table-cell">
                     Last modified
                   </th>
@@ -790,10 +834,13 @@
                   <td colspan="4" class="p-8 text-center">Loading your files...</td>
                 </template>
                 <template if="!loading && !sortedFiles?.length && !folders?.length">
-                  <td colspan="4" class="p-8 text-center">
-                    <p class="block mb-2">New files will appear here once you start uploading.</p>
+                  <td colspan="4" class="p-10 text-center">
+                    <span class="filebin-icon-tile mb-4"
+                      ><lucide-icon icon="cloud-upload" size="22"></lucide-icon
+                    ></span>
+                    <p class="block mb-3 font-semibold">New files will appear here once you start uploading.</p>
                     <button
-                      class="inline-flex items-center justify-center gap-2 rounded text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-blue-800 bg-blue-700 text-white hover:bg-blue-800 h-8 px-3 py-1 border-0"
+                      class="reference-primary inline-flex items-center justify-center gap-2 rounded-xl text-sm font-bold text-white hover:bg-blue-600 h-9 px-4 py-1"
                       on-click="filedialog.showModal()"
                     >
                       <lucide-icon icon="upload" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
@@ -957,34 +1004,43 @@
           </section>
         </main>
         <main
-          class="reference-screen flex flex-1 items-center justify-center px-4 py-8 md:px-6"
+          class="reference-screen flex flex-1 items-center justify-center px-4 py-8 md:px-8"
           class-hidden="!appStart"
         >
           <template if="binList?.length">
-            <div class="w-full max-w-5xl min-w-0">
-              <div class="grid w-full min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="w-full max-w-6xl min-w-0">
+              <div class="mb-7 flex items-end justify-between gap-4">
+                <div>
+                  <p class="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Your workspace</p>
+                  <h1 class="mt-1 text-3xl font-black tracking-tight md:text-4xl">Keep every project close.</h1>
+                </div>
+                <button
+                  class="reference-primary inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-bold text-white hover:bg-blue-600"
+                  on-click="onAddBin()"
+                  bind-disabled="creating"
+                >
+                  <lucide-icon icon="plus" size="16"></lucide-icon><span class="hidden sm:inline">New file bin</span>
+                </button>
+              </div>
+              <div class="grid w-full min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <template for="bin of binList">
                   <article
-                    class="group min-w-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-blue-300 hover:shadow-md"
+                    class="reference-card group min-w-0 rounded-3xl border bg-white/90 p-5 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg"
                     on-click="openBin(bin)"
                   >
                     <div class="flex items-start gap-3">
-                      <lucide-icon
-                        icon="folder"
-                        size="22"
-                        icon-classes="mt-0.5 h-5 w-5 shrink-0 text-blue-600"
-                      ></lucide-icon>
+                      <span class="filebin-icon-tile"><lucide-icon icon="folder" size="20"></lucide-icon></span>
                       <div class="min-w-0 flex-1">
                         <div class="flex items-start justify-between gap-2">
                           <a
-                            class="min-w-0 truncate text-sm font-semibold text-gray-900 hover:text-blue-700"
+                            class="min-w-0 truncate text-base font-bold text-gray-900 hover:text-indigo-600"
                             bind-href="getBinUrl(bin.id)"
                             title="Open bin"
                           >
                             {{ bin.id }}
                           </a>
                           <button
-                            class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-gray-500 hover:bg-indigo-50 hover:text-indigo-700"
                             type="button"
                             bind-popover-target="'bin-menu-' + bin.id"
                             bind-popover-target-action="'toggle'"
@@ -996,7 +1052,7 @@
                           <div
                             attr-id="'bin-menu-' + bin.id"
                             popover="auto"
-                            class="z-30 rounded-lg border border-gray-200 bg-white p-1 text-sm shadow-lg"
+                            class="z-30 rounded-2xl border border-indigo-100 bg-white p-1.5 text-sm shadow-xl"
                             on-click.stop
                           >
                             <button
@@ -1021,7 +1077,7 @@
                         </div>
                         <div class="mt-3 flex items-center gap-2 text-xs text-gray-500">
                           <span>{{ formatSize(bin.size) }}</span>
-                          <span class="rounded-full bg-gray-100 px-2 py-0.5"
+                          <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700"
                             >{{ bin.visibility === 'private' ? 'Private' : 'Public' }}</span
                           >
                           <span
@@ -1040,7 +1096,7 @@
           <template if="!binList?.length">
             <div class="flex w-full max-w-3xl flex-col items-center text-center">
               <div
-                class="mb-8 w-full max-w-lg rounded-[2rem] bg-gradient-to-br from-blue-50 via-white to-yellow-50 p-6 md:p-10"
+                class="reference-panel mb-8 w-full max-w-lg rounded-[2rem] border bg-gradient-to-br from-indigo-50 via-white to-violet-50 p-6 md:p-10"
               >
                 <svg
                   class="mx-auto h-auto w-full max-w-xs"
@@ -1065,7 +1121,7 @@
                   <path d="m294 118 3 8 8 1-6 5 2 9-7-5-7 5 2-9-7-5 8-1 4-8Z" fill="#fff" />
                 </svg>
               </div>
-              <p class="mb-3 text-sm font-semibold uppercase tracking-widest text-blue-700">Your workspace is ready</p>
+              <p class="mb-3 text-sm font-bold uppercase tracking-[0.16em] text-indigo-600">Your workspace is ready</p>
               <h1 class="mb-4 text-3xl font-black tracking-tight text-gray-950 md:text-5xl">
                 Start with a fresh file bin.
               </h1>
@@ -1075,7 +1131,7 @@
               </p>
               <div class="flex flex-col gap-3 sm:flex-row">
                 <button
-                  class="inline-flex items-center justify-center gap-2 rounded-md bg-blue-700 px-5 py-3 font-medium text-white hover:bg-blue-800"
+                  class="reference-primary inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3.5 font-bold text-white hover:bg-blue-600"
                   on-click="onAddBin()"
                   bind-disabled="creating"
                 >
