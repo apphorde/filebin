@@ -489,6 +489,16 @@ test('OpenAPI JSON endpoint returns JSON', async () => {
   assert.equal(new Set(operationIds).size, operationIds.length);
 });
 
+test('unavailable sign-in service renders a recovery page', async () => {
+  const response = await fetch(`${baseUrl}/auth/login`);
+  assert.equal(response.status, 503);
+  assert.match(response.headers.get('content-type'), /text\/html/);
+  const page = await response.text();
+  assert.match(page, /Sign in is taking a moment/);
+  assert.match(page, /Your files are safe/);
+  assert.match(page, /Try again/);
+});
+
 test('UI, module, manifest, icon, and YAML specification are served', async () => {
   const resources = [
     ['/', /Bin actions/],

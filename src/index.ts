@@ -691,11 +691,11 @@ async function readAuthState(req) {
 }
 
 async function onAuthLogin(req, res) {
-  const auth = await getAuthClient();
   if (oidcMissingConfiguration.length) {
-    return res.writeHead(503).end(`OIDC configuration missing: ${oidcMissingConfiguration.join(', ')}`);
+    return authUnavailable(res);
   }
-  if (!auth) return res.writeHead(503).end('OIDC provider client is unavailable');
+  const auth = await getAuthClient();
+  if (!auth) return authUnavailable(res);
   const forwardedProtocol = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0];
   const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost').split(',')[0];
   const origin = `${forwardedProtocol}://${forwardedHost}`;
@@ -715,11 +715,12 @@ async function onAuthLogin(req, res) {
 
 async function onAuthCallback(req, res) {
   const auth = await getAuthClient();
+  if (!auth) return authUnavailable(res);
   const cookie = getCookie(req, 'filebin_oidc');
   const [state, signature] = String(cookie || '').split('.');
   const expected = Buffer.from(sign(state || ''));
   const actual = Buffer.from(signature || '');
-  if (!auth || !oidcClientSecret || !state || actual.length !== expected.length || !timingSafeEqual(actual, expected))
+  if (!oidcClientSecret || !state || actual.length !== expected.length || !timingSafeEqual(actual, expected))
     return unauthenticated(res);
   const saved = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
   const url = new URL(req.url, getProxyHost(req));
@@ -734,7 +735,7 @@ async function onAuthCallback(req, res) {
   const profile = await getOidcProfile(auth, tokens);
   const id = randomUUID();
   const database = await getDatabase();
-  if (!database) return res.writeHead(503).end('Database unavailable');
+  if (!database) return authUnavailable(res);
   await database.run(
     'INSERT INTO oidc_sessions (id, profile, access_token, refresh_token, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     [
@@ -1384,6 +1385,14 @@ function unauthorized(res) {
 
 function unauthenticated(res) {
   res.writeHead(401, jsonHeaders).end(JSON.stringify({ error: 'Authentication required' }));
+}
+
+function authUnavailable(res) {
+  res
+    .writeHead(503, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+    .end(
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in unavailable | File Bin</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:linear-gradient(145deg,#eff3ff,#e6edff 48%,#f4efff);color:#111a37;font-family:ui-rounded,"Avenir Next",system-ui,sans-serif}.card{box-sizing:border-box;width:min(100% - 2rem,28rem);padding:2.5rem;border:1px solid #dce4ff;border-radius:2rem;background:rgba(255,255,255,.92);box-shadow:0 18px 45px rgba(61,83,165,.14);text-align:center}.mark{display:grid;place-items:center;width:3.5rem;height:3.5rem;margin:0 auto 1.5rem;border-radius:1.1rem;background:#496ef0;color:#fff;font-size:1.5rem}h1{margin:0;font-size:1.75rem}p{margin:1rem 0 1.75rem;color:#5d6885;line-height:1.6}.actions{display:flex;justify-content:center;gap:.75rem;flex-wrap:wrap}a{padding:.75rem 1rem;border-radius:.85rem;font-weight:700;text-decoration:none}a:first-child{background:#496ef0;color:#fff}a:last-child{border:1px solid #dce4ff;color:#4055a5}</style></head><body><main class="card"><div class="mark">!</div><h1>Sign in is taking a moment</h1><p>We could not reach the sign-in service. Your files are safe. Please try again in a moment.</p><div class="actions"><a href="/auth/login">Try again</a><a href="/">Return home</a></div></main></body></html>`,
+    );
 }
 
 async function tryCatch(res, fn) {
