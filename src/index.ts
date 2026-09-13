@@ -80,22 +80,22 @@ const oidcMissingConfiguration = [
   !oidcClientId && 'OIDC_CLIENT_ID',
   !oidcClientSecret && 'OIDC_CLIENT_SECRET',
 ].filter(Boolean);
-const authClientPromise =
-  authIssuer && oidcClientId
-    ? fetch(new URL('/node.mjs', authIssuer))
-        .then((response) => response.text())
-        .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
-        .then(({ createAuthClient }) =>
-          createAuthClient({
-            issuer: authIssuer,
-            clientId: oidcClientId,
-          }),
-        )
-        .catch((error) => {
-          console.error('Unable to initialize OIDC provider client:', error);
-          return null;
-        })
-    : Promise.resolve(null);
+let authClientPromise: Promise<any> | null = null;
+
+function loadAuthClient() {
+  if (!authIssuer || !oidcClientId) return Promise.resolve(null);
+  return fetch(new URL('/node.mjs', authIssuer))
+    .then((response) => {
+      if (!response.ok) throw new Error(`OIDC provider module request failed: ${response.status}`);
+      return response.text();
+    })
+    .then((source) => import(`data:text/javascript,${encodeURIComponent(source)}`))
+    .then(({ createAuthClient }) => createAuthClient({ issuer: authIssuer, clientId: oidcClientId }))
+    .catch((error) => {
+      console.error('Unable to initialize OIDC provider client:', error);
+      return null;
+    });
+}
 const databasePromise = databaseModuleUrl
   ? fetch(databaseModuleUrl)
       .then((response) => response.text())
@@ -442,7 +442,10 @@ async function onReadMetadata(req, res, args) {
 }
 
 async function getAuthClient() {
-  return authClientPromise;
+  authClientPromise ||= loadAuthClient();
+  const auth = await authClientPromise;
+  if (!auth) authClientPromise = null;
+  return auth;
 }
 
 async function getOidcProfile(auth, tokens): Promise<any> {
