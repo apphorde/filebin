@@ -410,7 +410,7 @@
           }
 
           async function onCopyUrl() {
-            navigator.clipboard.writeText(getBinUrl(binId.value));
+            await navigator.clipboard.writeText(getBinUrl(binId.value));
           }
 
           async function onRename(fileRef) {
@@ -730,12 +730,6 @@
             ><img src="/icon.svg" alt="File Bin" class="h-9 w-9 rounded-xl shadow-sm" />
             <span class="hidden sm:inline">File Bin</span>
           </a>
-          <a
-            attr-href="getBinUrl()"
-            class="mx-4 min-w-0 truncate text-xs rounded hidden md:block"
-            on-click.prevent="onCopyUrl()"
-            >{{ binId || '' }}</a
-          >
           <div class="flex items-center justify-end gap-2">
             <a
               class="h-10 w-10 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 border border-indigo-100 bg-white/80 hover:bg-white md:w-auto md:px-4"
@@ -937,6 +931,15 @@
               <button
                 class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-white/80 text-indigo-700 hover:bg-white"
                 type="button"
+                on-click="onCopyUrl()"
+                aria-label="Copy bin link"
+                title="Copy bin link"
+              >
+                <lucide-icon icon="link" size="14"></lucide-icon>
+              </button>
+              <button
+                class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-white/80 text-indigo-700 hover:bg-white"
+                type="button"
                 on-click="toggleBinMenu(currentBin)"
                 aria-label="Bin actions"
               >
@@ -994,7 +997,7 @@
               </div>
             </div>
           </div>
-          <section class="reference-primary rounded-2xl p-4 text-white shadow-lg shadow-indigo-200">
+          <section class="reference-primary rounded-2xl px-4 py-2 text-white shadow-lg shadow-indigo-200">
             <div class="flex items-center gap-3">
               <lucide-icon icon="folder-open-dot" size="20"></lucide-icon>
               <div class="min-w-0 flex-1">
@@ -1024,13 +1027,6 @@
                   <template if="!binStorage.quota">No storage limit configured</template>
                 </p>
               </div>
-              <button
-                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/15 hover:bg-white/25"
-                on-click="onCopyUrl()"
-                aria-label="Copy bin link"
-              >
-                <lucide-icon icon="link" size="16"></lucide-icon>
-              </button>
             </div>
           </section>
           <div class="reference-panel border rounded-[1.5rem] w-full overflow-x-auto p-2 md:p-3">
