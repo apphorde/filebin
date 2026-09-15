@@ -19,7 +19,7 @@ Bins:
 Files:
   fbin file list <bin-id>
   fbin file info <bin-id> <file-id>
-  fbin file upload <bin-id> ./file [--immutable]
+  fbin file upload <bin-id> ./file [--immutable] [--overwrite --file-id <file-id>]
   fbin file download <bin-id> <file-id> ./file
   fbin file delete <bin-id> <file-id>
 
@@ -58,6 +58,7 @@ function parseArguments(args) {
       concurrency: { type: 'string' },
       help: { type: 'boolean' },
       immutable: { type: 'boolean' },
+      overwrite: { type: 'boolean' },
     },
   });
   const options = {
@@ -66,6 +67,7 @@ function parseArguments(args) {
     name: values.name,
     fileId: values['file-id'],
     immutable: values.immutable || false,
+    overwrite: values.overwrite || false,
     partSize: Number(values['part-size'] || 8 * 1024 * 1024),
     concurrency: Number(values.concurrency || 3),
   };
@@ -123,6 +125,17 @@ function missingRanges(ranges, total, partSize) {
 async function upload(request, binId, path, options) {
   const file = await stat(path);
   let fileId = options.fileId;
+  if (options.overwrite) {
+    if (!fileId) throw new Error('--overwrite requires --file-id');
+    const response = await json(request, `/f/${binId}/${fileId}`, {
+      method: 'PUT',
+      headers: { 'content-length': String(file.size) },
+      body: createReadStream(path),
+      duplex: 'half',
+    });
+    console.log(JSON.stringify(response));
+    return;
+  }
   if (!fileId) {
     const metadata = { name: options.name || basename(path), ...(options.immutable ? { immutable: true } : {}) };
     fileId = (

@@ -315,20 +315,24 @@ test('CLI manages bins, files, and protected access', async () => {
   const { stdout: created } = await cli('bin', 'create');
   const { binId } = JSON.parse(created);
   const localFile = join(rootDir, 'cli-source.txt');
+  const replacementFile = join(rootDir, 'cli-replacement.txt');
   const downloadedFile = join(rootDir, 'cli-download.txt');
   await writeFile(localFile, 'filebin CLI upload');
+  await writeFile(replacementFile, 'filebin CLI overwrite');
 
   const { stdout: uploaded } = await cli('file', 'upload', binId, localFile, '--part-size', '4', '--concurrency', '2');
   const file = JSON.parse(uploaded);
   assert.equal(await readFile(join(rootDir, binId, file.id), 'utf8'), 'filebin CLI upload');
+  await cli('file', 'upload', binId, replacementFile, '--file-id', file.id, '--overwrite');
+  assert.equal(await readFile(join(rootDir, binId, file.id), 'utf8'), 'filebin CLI overwrite');
 
   const { stdout: listed } = await cli('file', 'list', binId);
   assert.equal(JSON.parse(listed)[0].id, file.id);
   await cli('file', 'download', binId, file.id, downloadedFile);
-  assert.equal(await readFile(downloadedFile, 'utf8'), 'filebin CLI upload');
+  assert.equal(await readFile(downloadedFile, 'utf8'), 'filebin CLI overwrite');
   await truncate(downloadedFile, 5);
   await cli('file', 'download', binId, file.id, downloadedFile);
-  assert.equal(await readFile(downloadedFile, 'utf8'), 'filebin CLI upload');
+  assert.equal(await readFile(downloadedFile, 'utf8'), 'filebin CLI overwrite');
 
   await cli('--password', 'correct horse', 'lock', 'set', binId);
   const { stdout: status } = await cli('lock', 'status', binId);
