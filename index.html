@@ -472,7 +472,11 @@
           }
 
           function onCopyFileUrl() {
-            navigator.clipboard.writeText(selectedFile.value.url);
+            navigator.clipboard.writeText(getFileUrl(selectedFile.value));
+          }
+
+          function getFileUrl(file) {
+            return new URL(`/f/${file.bin}/${file.id}`, location.origin).toString();
           }
 
           function isImage(file) {
@@ -728,6 +732,7 @@
             onDelete,
             openFileDetails,
             onCopyFileUrl,
+            getFileUrl,
             isImage,
             formatFileDate,
             onHomeClick,
@@ -1548,7 +1553,10 @@
             <div class="mb-6 flex items-start gap-4">
               <div class="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-indigo-50">
                 <template if="isImage(selectedFile)"
-                  ><img class="h-full w-full object-cover" bind-src="selectedFile.url" attr-alt="selectedFile.name"
+                  ><img
+                    class="h-full w-full object-cover"
+                    bind-src="getFileUrl(selectedFile)"
+                    attr-alt="selectedFile.name"
                 /></template>
                 <template if="!isImage(selectedFile)"
                   ><lucide-icon icon="file-text" size="30" icon-classes="text-indigo-500"></lucide-icon
@@ -1579,7 +1587,7 @@
               <a
                 class="reference-primary inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-white hover:bg-blue-600"
                 target="_blank"
-                bind-href="selectedFile.url"
+                bind-href="getFileUrl(selectedFile)"
                 ><lucide-icon icon="download" size="16"></lucide-icon>Download</a
               >
               <button
