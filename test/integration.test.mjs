@@ -499,6 +499,21 @@ test('unavailable sign-in service renders a recovery page', async () => {
   assert.match(page, /Try again/);
 });
 
+test('administrative endpoints require an allowlisted subject', async () => {
+  assert.equal((await fetch(`${baseUrl}/admin`)).status, 403);
+  assert.equal((await fetch(`${baseUrl}/admin/stats`)).status, 403);
+  assert.equal(
+    (
+      await fetch(`${baseUrl}/admin/bins/missing/quota`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ extraBytes: 1024 }),
+      })
+    ).status,
+    403,
+  );
+});
+
 test('UI, module, manifest, icon, and YAML specification are served', async () => {
   const resources = [
     ['/', /Bin actions/],

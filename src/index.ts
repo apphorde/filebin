@@ -22,6 +22,12 @@ const authIssuer = process.env.AUTH_PROVIDER?.replace(/\/+$/, '');
 const oidcClientId = process.env.OIDC_CLIENT_ID;
 const oidcClientSecret = process.env.OIDC_CLIENT_SECRET;
 const databaseModuleUrl = process.env.DATABASE_URL;
+const adminSubjects = new Set(
+  String(process.env.ADMIN_SUBJECTS || '')
+    .split(',')
+    .map((subject) => subject.trim())
+    .filter(Boolean),
+);
 const binAdjectives = [
   'Amber',
   'Bright',
@@ -130,14 +136,19 @@ const databasePromise = databaseModuleUrl
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (bin_id, id)
       );
-      CREATE TABLE IF NOT EXISTS storage_uploads (
+       CREATE TABLE IF NOT EXISTS storage_uploads (
         bin_id TEXT NOT NULL,
         file_id TEXT NOT NULL,
         state TEXT NOT NULL,
         updated_at INTEGER NOT NULL,
-        PRIMARY KEY (bin_id, file_id)
-      );
-      CREATE TABLE IF NOT EXISTS audit_events (
+         PRIMARY KEY (bin_id, file_id)
+       );
+       CREATE TABLE IF NOT EXISTS storage_bin_quota_overrides (
+         bin_id TEXT PRIMARY KEY,
+         extra_bytes INTEGER NOT NULL,
+         updated_at INTEGER NOT NULL
+       );
+       CREATE TABLE IF NOT EXISTS audit_events (
         id INTEGER PRIMARY KEY,
         actor_subject TEXT,
         action TEXT NOT NULL,
@@ -556,6 +567,24 @@ async function getPrincipal(req) {
   return profile?.sub ? { issuer: profile.iss || authIssuer, subject: profile.sub, profile } : null;
 }
 
+function isAdminPrincipal(principal) {
+  return Boolean(principal?.subject && adminSubjects.has(principal.subject));
+}
+
+async function getAdminContext(req, res) {
+  const principal = await getPrincipal(req);
+  if (!isAdminPrincipal(principal)) {
+    forbidden(res);
+    return null;
+  }
+  const database = await getDatabase();
+  if (!database) {
+    res.writeHead(503).end('Database unavailable');
+    return null;
+  }
+  return { principal, database };
+}
+
 async function listOwnedBins(database, principal) {
   const bins = await database.all(
     `SELECT b.id, b.name, b.visibility, COALESCE(SUM(f.size), 0) AS size
@@ -568,13 +597,16 @@ async function listOwnedBins(database, principal) {
     [principal.issuer, principal.subject],
   );
   return Promise.all(
-    bins.map(async (bin) => ({
-      ...bin,
-      storageUsedBytes: Number(bin.size || 0),
-      storageQuotaBytes: binStorageQuotaBytes || null,
-      storageRemainingBytes: binStorageQuotaBytes ? Math.max(0, binStorageQuotaBytes - Number(bin.size || 0)) : null,
-      protected: await isBinLocked(bin.id),
-    })),
+    bins.map(async (bin) => {
+      const storageQuotaBytes = await getBinQuota(bin.id);
+      return {
+        ...bin,
+        storageUsedBytes: Number(bin.size || 0),
+        storageQuotaBytes: storageQuotaBytes || null,
+        storageRemainingBytes: storageQuotaBytes ? Math.max(0, storageQuotaBytes - Number(bin.size || 0)) : null,
+        protected: await isBinLocked(bin.id),
+      };
+    }),
   );
 }
 
@@ -583,9 +615,16 @@ async function getStorageBin(binId: string) {
   return database && database.get('SELECT * FROM storage_bins WHERE id = ?', [binId]);
 }
 
+async function getBinQuota(binId: string) {
+  const database = await getDatabase();
+  if (!database) return binStorageQuotaBytes;
+  const override = await database.get('SELECT extra_bytes FROM storage_bin_quota_overrides WHERE bin_id = ?', [binId]);
+  return binStorageQuotaBytes + Math.max(0, Number(override?.extra_bytes || 0));
+}
+
 async function getBinStorage(binId: string) {
   const usage = await getBinStorageUsage(binId);
-  return { used: usage.used, quota: binStorageQuotaBytes };
+  return { used: usage.used, quota: await getBinQuota(binId) };
 }
 
 async function getBinStorageUsage(binId: string, excludeFileId?: string) {
@@ -641,6 +680,7 @@ async function permanentlyDeleteBin(binId: string) {
   if (database) {
     await database.run('DELETE FROM storage_uploads WHERE bin_id = ?', [binId]);
     await database.run('DELETE FROM storage_files WHERE bin_id = ?', [binId]);
+    await database.run('DELETE FROM storage_bin_quota_overrides WHERE bin_id = ?', [binId]);
     await database.run('DELETE FROM storage_bins WHERE id = ?', [binId]);
   }
 }
@@ -736,6 +776,65 @@ async function onAuthBins(req, res) {
   if (!principal || !database) return unauthenticated(res);
   const summaries = await listOwnedBins(database, principal);
   res.writeHead(200, jsonHeaders).end(JSON.stringify(summaries));
+}
+
+async function onAdminStats(req, res) {
+  const context = await getAdminContext(req, res);
+  if (!context) return;
+  const { database } = context;
+  await importDiskCatalog();
+  const bins = await database.all(
+    `SELECT b.id, b.name, b.visibility, COALESCE(SUM(f.size), 0) AS size,
+            COALESCE(q.extra_bytes, 0) AS extra_bytes
+     FROM storage_bins b
+     LEFT JOIN storage_files f ON f.bin_id = b.id
+     LEFT JOIN storage_bin_quota_overrides q ON q.bin_id = b.id
+     GROUP BY b.id, b.name, b.visibility, q.extra_bytes
+     ORDER BY b.created_at DESC`,
+  );
+  const formatted = bins.map((bin) => {
+    const used = Number(bin.size || 0);
+    const extra = Number(bin.extra_bytes || 0);
+    const quota = binStorageQuotaBytes + extra;
+    return {
+      id: bin.id,
+      name: bin.name,
+      visibility: bin.visibility,
+      storageUsedBytes: used,
+      extraQuotaBytes: extra,
+      storageQuotaBytes: quota || null,
+      storageRemainingBytes: quota ? Math.max(0, quota - used) : null,
+    };
+  });
+  res
+    .writeHead(200, jsonHeaders)
+    .end(
+      JSON.stringify({ binCount: formatted.length, defaultQuotaBytes: binStorageQuotaBytes || null, bins: formatted }),
+    );
+}
+
+async function onAdminQuota(req, res, args) {
+  const context = await getAdminContext(req, res);
+  if (!context) return;
+  const { database } = context;
+  const bin = await database.get('SELECT id FROM storage_bins WHERE id = ?', [args.binId]);
+  if (!bin) return notFound(res);
+  const payload = await readJson(req);
+  const extraBytes = payload.extraBytes ?? payload.extraQuotaBytes;
+  if (!Number.isSafeInteger(extraBytes) || extraBytes < 0) {
+    return badRequest(res, 'extraBytes must be a non-negative integer');
+  }
+  if (extraBytes === 0) {
+    await database.run('DELETE FROM storage_bin_quota_overrides WHERE bin_id = ?', [args.binId]);
+  } else {
+    await database.run(
+      `INSERT INTO storage_bin_quota_overrides (bin_id, extra_bytes, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(bin_id) DO UPDATE SET extra_bytes = excluded.extra_bytes, updated_at = excluded.updated_at`,
+      [args.binId, extraBytes, Date.now()],
+    );
+  }
+  await audit(req, 'bin.quota.updated', args.binId);
+  res.writeHead(204).end();
 }
 
 async function readAuthState(req) {
@@ -906,7 +1005,8 @@ async function onWriteFile(req, res, args) {
         const fileSize = (await stat(temporaryPath)).size;
         await withBinStorageLock(binId, async () => {
           const usage = await getBinStorageUsage(binId, fileId);
-          if (binStorageQuotaBytes && usage.used + usage.reserved + fileSize > binStorageQuotaBytes) {
+          const quota = await getBinQuota(binId);
+          if (quota && usage.used + usage.reserved + fileSize > quota) {
             await rm(temporaryPath, { force: true });
             throw new Error('Bin storage quota exceeded');
           }
@@ -955,7 +1055,8 @@ async function onWriteFile(req, res, args) {
       if (duplicate) return;
       if (state.total === null) {
         const usage = await getBinStorageUsage(binId, fileId);
-        if (binStorageQuotaBytes && usage.used + usage.reserved + contentRange.total > binStorageQuotaBytes) {
+        const quota = await getBinQuota(binId);
+        if (quota && usage.used + usage.reserved + contentRange.total > quota) {
           quotaExceeded = true;
           state = null;
           return;
@@ -1124,6 +1225,11 @@ function onRenameBin(req, res, args) {
       await rename(oldMetaPath, newPath + '.meta');
     }
 
+    const database = await getDatabase();
+    if (database) {
+      await database.run('UPDATE storage_bin_quota_overrides SET bin_id = ? WHERE bin_id = ?', [newId, binId]);
+    }
+
     if (await isBinLocked(newId)) {
       setUnlockCookie(req, res, newId);
     }
@@ -1253,6 +1359,13 @@ function onGetUI(req, res, args) {
     const { binId } = args;
     const requestedBinId = binId || new URL(req.url, 'http://localhost').searchParams.get('bin');
     let state: any = await readAuthState(req);
+    const isAdminPage = new URL(req.url, 'http://localhost').pathname === '/admin';
+    state = { ...state, adminAccess: isAdminPrincipal(state.profile && { subject: state.profile.sub }) };
+
+    if (isAdminPage) {
+      if (!(await getAdminContext(req, res))) return;
+      state = { ...state, adminAccess: true };
+    }
 
     if (requestedBinId) {
       const baseUrl = getProxyHost(req);
@@ -1317,7 +1430,8 @@ async function onUploadZip(req, res, args) {
     const zipSize = await getZipUncompressedSize(tmpFile);
     await withBinStorageLock(binId, async () => {
       const usage = await getBinStorageUsage(binId);
-      if (binStorageQuotaBytes && usage.used + usage.reserved + zipSize > binStorageQuotaBytes) {
+      const quota = await getBinQuota(binId);
+      if (quota && usage.used + usage.reserved + zipSize > quota) {
         throw new Error('Bin storage quota exceeded');
       }
       await extractZipFile(tmpFile, binPath);
@@ -1497,6 +1611,10 @@ function unauthorized(res) {
   res
     .writeHead(401, { ...jsonHeaders, 'www-authenticate': 'Basic realm="FileBin"' })
     .end(JSON.stringify({ error: 'This bin is locked' }));
+}
+
+function forbidden(res) {
+  res.writeHead(403, jsonHeaders).end(JSON.stringify({ error: 'Administrator access required' }));
 }
 
 function unauthenticated(res) {
@@ -1715,8 +1833,11 @@ const match = router({
   'GET /': onGetUI,
   'GET /app': onGetUI,
   'GET /help': onGetUI,
+  'GET /admin': onGetUI,
   'GET /auth/profile': onAuthProfile,
   'GET /api/bins': onAuthBins,
+  'GET /admin/stats': onAdminStats,
+  'PATCH /admin/bins/:binId/quota': onAdminQuota,
   'GET /auth/login': onAuthLogin,
   'GET /auth/callback': onAuthCallback,
   'POST /auth/logout': onAuthLogout,

@@ -246,6 +246,7 @@
         export default function setup() {
           const searchParams = new URL(location.href).searchParams;
           const isHelp = location.pathname === '/help';
+          const isAdminPage = location.pathname === '/admin';
           const isLanding = location.pathname === '/' && !searchParams.get('bin');
           const binId = ref(
             isHelp || isLanding
@@ -256,7 +257,11 @@
                   /\/b\/(?<binId>.+)/.exec(location.pathname)?.groups?.binId ||
                   localStorage.getItem('binId'),
           );
-          const appStart = computed(() => !isHelp && !isLanding && !binId.value);
+          const appStart = computed(() => !isHelp && !isLanding && !isAdminPage && !binId.value);
+          const adminAccess = ref(false);
+          const adminStats = ref({ binCount: 0, defaultQuotaBytes: null, bins: [] });
+          const adminLoading = ref(false);
+          const adminError = ref('');
           const binList = ref([]);
           const binName = ref('');
           const binStorage = ref({ used: 0, quota: 0 });
@@ -335,6 +340,8 @@
               binList.value = await getMyBins();
             }
 
+            if (isAdminPage) await loadAdminStats();
+
             if (binId.value) {
               const status = await getBinLock(binId.value);
               protectedBin.value = status.locked;
@@ -411,6 +418,41 @@
 
           async function onCopyUrl() {
             await navigator.clipboard.writeText(getBinUrl(binId.value));
+          }
+
+          async function loadAdminStats() {
+            adminLoading.value = true;
+            adminError.value = '';
+            try {
+              const response = await fetch('/admin/stats', { credentials: 'include' });
+              if (!response.ok) throw new Error('Failed to load administrative data');
+              adminStats.value = await response.json();
+              adminAccess.value = true;
+            } catch (error) {
+              adminError.value = error.message;
+            } finally {
+              adminLoading.value = false;
+            }
+          }
+
+          async function grantExtraQuota() {
+            const binIdValue = document.getElementById('admingrantbin')?.value.trim();
+            const extraBytes = Number(document.getElementById('admingrantbytes')?.value);
+            if (!binIdValue || !Number.isSafeInteger(extraBytes) || extraBytes < 0) {
+              adminError.value = 'Enter a bin ID and a non-negative whole number of bytes';
+              return;
+            }
+            const response = await fetch(`/admin/bins/${encodeURIComponent(binIdValue)}/quota`, {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ extraBytes }),
+            });
+            if (!response.ok) {
+              adminError.value = await response.text();
+              return;
+            }
+            await loadAdminStats();
           }
 
           async function onRename(fileRef) {
@@ -699,6 +741,12 @@
             signIn,
             signOut,
             profile,
+            adminAccess,
+            adminStats,
+            adminLoading,
+            adminError,
+            isAdminPage,
+            grantExtraQuota,
             isHelp,
             isLanding,
             appStart,
@@ -740,6 +788,17 @@
               <lucide-icon icon="circle-question-mark" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
               <span class="hidden md:inline">Help</span>
             </a>
+            <template if="adminAccess">
+              <a
+                class="h-10 w-10 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-xl font-semibold border border-indigo-100 bg-white/80 hover:bg-white md:w-auto md:px-4"
+                href="/admin"
+                aria-label="Admin"
+                title="Admin"
+              >
+                <lucide-icon icon="shield-check" size="14"></lucide-icon>
+                <span class="hidden md:inline">Admin</span>
+              </a>
+            </template>
             <button
               class="h-10 w-10 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none border border-indigo-100 bg-white/80 hover:bg-white md:w-auto md:px-4"
               on-click="onAddBin()"
@@ -887,7 +946,7 @@
 
         <main
           class="reference-screen flex flex-1 flex-col gap-5 p-4 pb-24 md:gap-7 md:p-8"
-          class-hidden="isLanding || isHelp || !binId || locked"
+          class-hidden="isLanding || isHelp || isAdminPage || !binId || locked"
         >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3 min-w-0">
@@ -1083,7 +1142,7 @@
         </main>
         <nav
           class="fixed inset-x-0 bottom-0 z-20 flex items-center justify-around border-t border-indigo-100 bg-white/95 px-3 py-2 shadow-[0_-8px_28px_rgba(61,83,165,0.1)] backdrop-blur md:hidden"
-          class-hidden="isLanding || isHelp || !binId || locked"
+          class-hidden="isLanding || isHelp || isAdminPage || !binId || locked"
           aria-label="File navigation"
         >
           <button
@@ -1238,6 +1297,83 @@
               history.
             </p>
           </section>
+        </main>
+        <main
+          class="reference-screen flex flex-1 items-start justify-center px-4 py-8 md:px-8"
+          class-hidden="!isAdminPage"
+        >
+          <div class="w-full max-w-6xl">
+            <div class="mb-8">
+              <p class="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Platform administration</p>
+              <h1 class="mt-1 text-3xl font-black tracking-tight md:text-4xl">Storage controls</h1>
+              <p class="mt-2 text-slate-600">
+                Review every bin and grant additional storage beyond the platform default.
+              </p>
+            </div>
+            <div class="mb-6 grid gap-4 sm:grid-cols-2">
+              <div class="reference-panel rounded-2xl border p-5">
+                <p class="text-sm font-semibold text-slate-500">Total bins</p>
+                <p class="mt-1 text-3xl font-black">{{ adminStats.binCount }}</p>
+              </div>
+              <div class="reference-panel rounded-2xl border p-5">
+                <p class="text-sm font-semibold text-slate-500">Default quota</p>
+                <p class="mt-1 text-3xl font-black">
+                  {{ adminStats.defaultQuotaBytes ? formatSize(adminStats.defaultQuotaBytes) : 'Unlimited' }}
+                </p>
+              </div>
+            </div>
+            <form
+              class="reference-panel mb-6 flex flex-col gap-3 rounded-2xl border p-5 md:flex-row md:items-end"
+              on-submit.stop.prevent="grantExtraQuota()"
+            >
+              <label class="flex-1 text-sm font-semibold text-slate-700"
+                >Bin ID<input
+                  id="admingrantbin"
+                  class="mt-1 h-10 w-full rounded-xl border border-indigo-100 px-3 font-normal"
+                  placeholder="Bin ID"
+                  required
+              /></label>
+              <label class="flex-1 text-sm font-semibold text-slate-700"
+                >Extra bytes<input
+                  id="admingrantbytes"
+                  class="mt-1 h-10 w-full rounded-xl border border-indigo-100 px-3 font-normal"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="0 to remove grant"
+                  required
+              /></label>
+              <button class="reference-primary h-10 rounded-xl px-4 text-sm font-bold text-white" type="submit">
+                Save grant
+              </button>
+            </form>
+            <p class="mb-4 text-sm text-red-600" class-hidden="!adminError">{{ adminError }}</p>
+            <div class="reference-panel overflow-x-auto rounded-2xl border">
+              <p class="p-5 text-slate-500" class-hidden="!adminLoading">Loading bins...</p>
+              <table class="w-full min-w-[40rem] text-left text-sm" class-hidden="adminLoading">
+                <thead class="border-b border-indigo-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th class="px-5 py-3">Bin</th>
+                    <th class="px-5 py-3">Used</th>
+                    <th class="px-5 py-3">Extra quota</th>
+                    <th class="px-5 py-3">Remaining</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template for="bin of adminStats.bins">
+                    <tr class="border-b border-indigo-50 last:border-0">
+                      <td class="px-5 py-3 font-semibold">{{ bin.id }}</td>
+                      <td class="px-5 py-3">{{ formatSize(bin.storageUsedBytes) }}</td>
+                      <td class="px-5 py-3">{{ formatSize(bin.extraQuotaBytes) }}</td>
+                      <td class="px-5 py-3">
+                        {{ bin.storageRemainingBytes === null ? 'Unlimited' : formatSize(bin.storageRemainingBytes) }}
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </main>
         <main
           class="reference-screen flex flex-1 items-center justify-center px-4 py-8 md:px-8"

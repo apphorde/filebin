@@ -65,6 +65,45 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/BinSummary' }
         '401': { description: No authenticated session }
+  /admin/stats:
+    get:
+      tags: [bins]
+      summary: Read platform storage statistics
+      description: Requires an OIDC subject listed in `ADMIN_SUBJECTS`.
+      operationId: readAdminStats
+      security: [{ oidcSession: [] }]
+      responses:
+        '200':
+          description: Bin count and quota details for every bin
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminStats' }
+        '403': { description: Administrator access required }
+        '503': { description: Database unavailable }
+  /admin/bins/{binId}/quota:
+    parameters:
+      - $ref: '#/components/parameters/BinId'
+    patch:
+      tags: [bins]
+      summary: Set extra storage for a bin
+      description: Requires an OIDC subject listed in `ADMIN_SUBJECTS`. Set `extraBytes` to zero to remove the grant.
+      operationId: updateAdminBinQuota
+      security: [{ oidcSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [extraBytes]
+              properties:
+                extraBytes: { type: integer, minimum: 0 }
+      responses:
+        '204': { description: Quota grant updated }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { description: Administrator access required }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { description: Database unavailable }
   /admin/cleanup:
     post:
       tags: [bins]
@@ -515,6 +554,26 @@ components:
       properties:
         binId: { type: string }
         deletionGraceHours: { type: number, example: 168 }
+    AdminStats:
+      type: object
+      required: [binCount, defaultQuotaBytes, bins]
+      properties:
+        binCount: { type: integer, minimum: 0 }
+        defaultQuotaBytes: { type: integer, minimum: 0, nullable: true }
+        bins:
+          type: array
+          items:
+            type: object
+            required:
+              [id, name, visibility, storageUsedBytes, extraQuotaBytes, storageQuotaBytes, storageRemainingBytes]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              visibility: { type: string, enum: [public, private] }
+              storageUsedBytes: { type: integer, minimum: 0 }
+              extraQuotaBytes: { type: integer, minimum: 0 }
+              storageQuotaBytes: { type: integer, minimum: 0, nullable: true }
+              storageRemainingBytes: { type: integer, minimum: 0, nullable: true }
     FileCreated:
       type: object
       required: [fileId]
