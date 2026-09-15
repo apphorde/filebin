@@ -259,6 +259,7 @@
           const appStart = computed(() => !isHelp && !isLanding && !binId.value);
           const binList = ref([]);
           const binName = ref('');
+          const binStorage = ref({ used: 0, quota: 0 });
           const files = ref([]);
           const filesLoaded = ref(false);
           const loading = ref(false);
@@ -303,6 +304,14 @@
               },
           );
           const canChangeVisibility = computed(() => binList.value.some((bin) => bin.id === binId.value));
+          const storageRemaining = computed(() =>
+            binStorage.value.quota ? Math.max(0, binStorage.value.quota - binStorage.value.used) : null,
+          );
+          const storageUsagePercent = computed(() =>
+            binStorage.value.quota
+              ? Math.min(100, Math.round((binStorage.value.used / binStorage.value.quota) * 100))
+              : 0,
+          );
           const lockError = ref('');
           const fileUploadDialog = templateRef('filedialog');
           const fileUploadInput = templateRef('fileupload');
@@ -440,7 +449,7 @@
           function openBinAction(bin, action) {
             selectedBin.value = bin;
             binAction.value = action;
-            document.getElementById(`bin-menu-${bin.id}`)?.hidePopover();
+            document.getElementById(bin.id === binId.value ? 'current-bin-menu' : `bin-menu-${bin.id}`)?.hidePopover();
             if (action === 'protect') {
               lockDialog.value.showModal();
             } else {
@@ -452,6 +461,11 @@
                 });
               }
             }
+          }
+
+          function toggleBinMenu(bin) {
+            const menuId = bin.id === binId.value ? 'current-bin-menu' : `bin-menu-${bin.id}`;
+            document.getElementById(menuId)?.togglePopover();
           }
 
           function openCurrentBinAction(action) {
@@ -503,6 +517,7 @@
 
             await removeFile(bin, id);
             files.value = files.value.filter((f) => f.id !== id);
+            syncStorageUsage();
           }
 
           function onUpload(e) {
@@ -592,6 +607,7 @@
               writeFile(binId.value, fileId, file).then(async () => {
                 Object.assign(meta, await readMetadata(binId.value, fileId));
                 partialFiles.value = partialFiles.value.filter((x) => x !== fileId);
+                syncStorageUsage();
               });
             }
           }
@@ -606,10 +622,18 @@
             try {
               const fileIds = await listFiles(binId.value);
               files.value = await Promise.all(fileIds.map((f) => readMetadata(binId.value, f)));
+              syncStorageUsage();
               filesLoaded.value = true;
             } finally {
               loading.value = false;
             }
+          }
+
+          function syncStorageUsage() {
+            binStorage.value = {
+              ...binStorage.value,
+              used: files.value.reduce((total, file) => total + Number(file.size || 0), 0),
+            };
           }
 
           function getBinUrl(id) {
@@ -625,6 +649,9 @@
             filesLoaded,
             binId,
             binName,
+            binStorage,
+            storageRemaining,
+            storageUsagePercent,
             binList,
             currentBin,
             canChangeVisibility,
@@ -664,6 +691,7 @@
             onHomeClick,
             openBinAction,
             openCurrentBinAction,
+            toggleBinMenu,
             onSetBinVisibility,
             onBinActionSubmit,
             openBin,
@@ -909,7 +937,7 @@
               <button
                 class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-white/80 text-indigo-700 hover:bg-white"
                 type="button"
-                popovertarget="current-bin-menu"
+                on-click="toggleBinMenu(currentBin)"
                 aria-label="Bin actions"
               >
                 <lucide-icon icon="ellipsis" size="16"></lucide-icon>
@@ -966,26 +994,44 @@
               </div>
             </div>
           </div>
-          <section
-            class="reference-primary flex items-center gap-4 rounded-[1.75rem] p-5 text-white shadow-lg shadow-indigo-200"
-          >
-            <div
-              class="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-8 border-white/20 bg-white/10"
-            >
-              <lucide-icon icon="folder" size="24"></lucide-icon>
+          <section class="reference-primary rounded-2xl p-4 text-white shadow-lg shadow-indigo-200">
+            <div class="flex items-center gap-3">
+              <lucide-icon icon="folder-open-dot" size="20"></lucide-icon>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-3 text-sm">
+                  <span class="font-bold">Storage</span>
+                  <span class="text-right text-white/80">
+                    {{ formatSize(binStorage.used) }}
+                    <template if="binStorage.quota"> / {{ formatSize(binStorage.quota) }}</template>
+                    <template if="!binStorage.quota"> used</template>
+                  </span>
+                </div>
+                <div
+                  class="mt-2 h-1.5 overflow-hidden rounded-full bg-white/25"
+                  role="progressbar"
+                  aria-label="Bin storage used"
+                  attr-aria-valuenow="storageUsagePercent"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                >
+                  <div
+                    class="h-full rounded-full bg-white transition-all"
+                    attr-style="'width: ' + (binStorage.quota ? storageUsagePercent : 0) + '%'"
+                  ></div>
+                </div>
+                <p class="mt-1 text-xs text-white/75">
+                  <template if="binStorage.quota">{{ formatSize(storageRemaining) }} remaining</template>
+                  <template if="!binStorage.quota">No storage limit configured</template>
+                </p>
+              </div>
+              <button
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/15 hover:bg-white/25"
+                on-click="onCopyUrl()"
+                aria-label="Copy bin link"
+              >
+                <lucide-icon icon="link" size="16"></lucide-icon>
+              </button>
             </div>
-            <div class="min-w-0 flex-1">
-              <p class="text-sm font-semibold text-white/75">Your file space</p>
-              <p class="truncate text-xl font-black">Ready to share</p>
-              <p class="mt-1 text-xs text-white/75">Keep adding files, folders, and ZIP archives.</p>
-            </div>
-            <button
-              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 hover:bg-white/25"
-              on-click="onCopyUrl()"
-              aria-label="Copy bin link"
-            >
-              <lucide-icon icon="link" size="17"></lucide-icon>
-            </button>
           </section>
           <div class="reference-panel border rounded-[1.5rem] w-full overflow-x-auto p-2 md:p-3">
             <div class="flex items-center justify-between px-3 pb-3 pt-2">
@@ -1048,7 +1094,7 @@
             class="flex min-w-14 flex-col items-center gap-1 text-xs font-semibold text-slate-500"
             on-click="onHomeClick()"
           >
-            <lucide-icon icon="home" size="19"></lucide-icon><span>Home</span>
+            <lucide-icon icon="folders" size="19"></lucide-icon><span>Home</span>
           </button>
           <a class="flex min-w-14 flex-col items-center gap-1 text-xs font-bold text-indigo-600" attr-href="getBinUrl()"
             ><lucide-icon icon="folder" size="19"></lucide-icon><span>Files</span></a
@@ -1236,9 +1282,7 @@
                           <button
                             class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-gray-500 hover:bg-indigo-50 hover:text-indigo-700"
                             type="button"
-                            bind-popover-target="'bin-menu-' + bin.id"
-                            bind-popover-target-action="'toggle'"
-                            on-click.stop
+                            on-click.stop="toggleBinMenu(bin)"
                             aria-label="Bin actions"
                           >
                             <lucide-icon icon="ellipsis" size="14" icon-classes="h-4 w-4"></lucide-icon>

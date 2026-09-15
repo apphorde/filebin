@@ -9,7 +9,8 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: 'npm run build && ROOT_DIR=/tmp/filebin-playwright PORT=4173 node dist/server.js',
+    command:
+      'npm run build && ROOT_DIR=/tmp/filebin-playwright BIN_MAX_STORAGE_BYTES=1048576 PORT=4173 node dist/server.js',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: false,
     timeout: 120_000,

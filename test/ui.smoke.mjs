@@ -37,6 +37,8 @@ test('bin actions open the rename dialog', async ({ page }) => {
   const binId = await page.request.post('/bin').then(async (response) => (await response.json()).binId);
 
   await page.goto(`/app?bin=${binId}`, { waitUntil: 'networkidle' });
+  await expect(page.getByText('Storage', { exact: true })).toBeVisible();
+  await expect(page.getByText(/remaining/)).toBeVisible();
   await page.getByRole('button', { name: 'Bin actions' }).click();
   await page.getByRole('button', { name: 'Rename bin' }).click();
 

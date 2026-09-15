@@ -74,6 +74,7 @@ function generateBinName() {
 const publicBinRetentionMs = Number(process.env.PUBLIC_BIN_RETENTION_HOURS || 168) * 60 * 60 * 1000;
 const publicBinCleanupToken = process.env.PUBLIC_BIN_CLEANUP_TOKEN;
 const binDeletionGraceMs = Number(process.env.BIN_DELETION_GRACE_HOURS || 168) * 60 * 60 * 1000;
+const binStorageQuotaBytes = Math.max(0, Number(process.env.BIN_MAX_STORAGE_BYTES || 0));
 const sessionCookieMaxAge = 30 * 24 * 60 * 60;
 const oidcMissingConfiguration = [
   !authIssuer && 'AUTH_PROVIDER',
@@ -165,6 +166,7 @@ const lockFileName = '.bin.meta';
 const sessionSecret = process.env.SESSION_SECRET || randomBytes(32);
 const scrypt = promisify(scryptCallback);
 const uploadLocks = new Map<string, Promise<void>>();
+const binStorageLocks = new Map<string, Promise<void>>();
 const uploadRetentionMs = Number(process.env.UPLOAD_RETENTION_HOURS || 72) * 60 * 60 * 1000;
 const uploadCleanupIntervalMs = Number(process.env.UPLOAD_CLEANUP_INTERVAL_MINUTES || 60) * 60 * 1000;
 
@@ -203,6 +205,21 @@ async function withUploadLock<T>(path: string, fn: () => Promise<T>) {
   } finally {
     release!();
     if (uploadLocks.get(path) === queued) uploadLocks.delete(path);
+  }
+}
+
+async function withBinStorageLock<T>(binId: string, fn: () => Promise<T>) {
+  const previous = binStorageLocks.get(binId) || Promise.resolve();
+  let release: () => void;
+  const current = new Promise<void>((resolve) => (release = resolve));
+  const queued = previous.then(() => current);
+  binStorageLocks.set(binId, queued);
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    release!();
+    if (binStorageLocks.get(binId) === queued) binStorageLocks.delete(binId);
   }
 }
 
@@ -550,12 +567,57 @@ async function listOwnedBins(database, principal) {
      ORDER BY b.created_at DESC`,
     [principal.issuer, principal.subject],
   );
-  return Promise.all(bins.map(async (bin) => ({ ...bin, protected: await isBinLocked(bin.id) })));
+  return Promise.all(
+    bins.map(async (bin) => ({
+      ...bin,
+      storageUsedBytes: Number(bin.size || 0),
+      storageQuotaBytes: binStorageQuotaBytes || null,
+      storageRemainingBytes: binStorageQuotaBytes ? Math.max(0, binStorageQuotaBytes - Number(bin.size || 0)) : null,
+      protected: await isBinLocked(bin.id),
+    })),
+  );
 }
 
 async function getStorageBin(binId: string) {
   const database = await getDatabase();
   return database && database.get('SELECT * FROM storage_bins WHERE id = ?', [binId]);
+}
+
+async function getBinStorage(binId: string) {
+  const usage = await getBinStorageUsage(binId);
+  return { used: usage.used, quota: binStorageQuotaBytes };
+}
+
+async function getBinStorageUsage(binId: string, excludeFileId?: string) {
+  const database = await getDatabase();
+  const used = database
+    ? Number(
+        (
+          await database.get(
+            `SELECT COALESCE(SUM(size), 0) AS used FROM storage_files WHERE bin_id = ?${excludeFileId ? ' AND id <> ?' : ''}`,
+            excludeFileId ? [binId, excludeFileId] : [binId],
+          )
+        )?.used || 0,
+      )
+    : await readBin(binId).then((files) =>
+        files
+          ? Promise.all(
+              files
+                .filter((fileId) => fileId !== excludeFileId)
+                .map(async (fileId) => (await stat(join(rootDir, binId, fileId))).size),
+            ).then((sizes) => sizes.reduce((total, size) => total + size, 0))
+          : 0,
+      );
+
+  const allFiles = await readdir(join(rootDir, binId));
+  const reserved = await Promise.all(
+    allFiles
+      .filter((file) => file.startsWith('.upload-') && file.endsWith('.json'))
+      .filter((file) => file.slice('.upload-'.length, -'.json'.length) !== excludeFileId)
+      .map(async (file) => (await readUploadState(binId, file.slice('.upload-'.length, -'.json'.length)))?.total || 0),
+  ).then((sizes) => sizes.reduce((total, size) => total + size, 0));
+
+  return { used, reserved };
 }
 
 async function markBinForDeletion(req, binId: string) {
@@ -841,13 +903,29 @@ async function onWriteFile(req, res, args) {
     writer.on('close', async () => {
       try {
         const sha256 = await sha256File(temporaryPath);
-        await rename(temporaryPath, filePath);
-        await Promise.all([rm(uploadPath, { force: true }), rm(statePath, { force: true })]);
-        await writeSystemMetadata(binId, fileId, { sha256, committedAt: new Date().toISOString() });
-        await recordCompletedFile(binId, fileId);
+        const fileSize = (await stat(temporaryPath)).size;
+        await withBinStorageLock(binId, async () => {
+          const usage = await getBinStorageUsage(binId, fileId);
+          if (binStorageQuotaBytes && usage.used + usage.reserved + fileSize > binStorageQuotaBytes) {
+            await rm(temporaryPath, { force: true });
+            throw new Error('Bin storage quota exceeded');
+          }
+          await rename(temporaryPath, filePath);
+          await Promise.all([rm(uploadPath, { force: true }), rm(statePath, { force: true })]);
+          await writeSystemMetadata(binId, fileId, { sha256, committedAt: new Date().toISOString() });
+          await recordCompletedFile(binId, fileId);
+        });
         sendFileReference(req, res, binId, fileId);
-      } catch {
-        if (!res.headersSent) res.writeHead(500).end('Failed to write file');
+      } catch (error) {
+        if (!res.headersSent) {
+          res
+            .writeHead(error instanceof Error && error.message === 'Bin storage quota exceeded' ? 413 : 500)
+            .end(
+              error instanceof Error && error.message === 'Bin storage quota exceeded'
+                ? 'Bin storage quota exceeded'
+                : 'Failed to write file',
+            );
+        }
       }
     });
     return;
@@ -858,24 +936,35 @@ async function onWriteFile(req, res, args) {
   const range: ByteRange = { start: contentRange.start, end: contentRange.end };
   let state: UploadState | null = null;
   let duplicate = false;
+  let quotaExceeded = false;
   await withUploadLock(statePath, async () => {
-    await recoverCompletedUpload(binId, fileId);
-    state = await readUploadState(binId, fileId);
-    if (!state || (state.total !== null && state.total !== contentRange.total)) {
-      state = null;
-      return;
-    }
-    duplicate = state.parts.some(
-      (part) => part.start === range.start && part.end === range.end && part.digest === digest,
-    );
-    if (rangesOverlap([...state.ranges, ...state.pending], range) && !duplicate) {
-      state = null;
-      return;
-    }
-    if (duplicate) return;
-    state.total = contentRange.total;
-    state.pending.push(range);
-    await writeUploadState(binId, fileId, state);
+    await withBinStorageLock(binId, async () => {
+      await recoverCompletedUpload(binId, fileId);
+      state = await readUploadState(binId, fileId);
+      if (!state || (state.total !== null && state.total !== contentRange.total)) {
+        state = null;
+        return;
+      }
+      duplicate = state.parts.some(
+        (part) => part.start === range.start && part.end === range.end && part.digest === digest,
+      );
+      if (rangesOverlap([...state.ranges, ...state.pending], range) && !duplicate) {
+        state = null;
+        return;
+      }
+      if (duplicate) return;
+      if (state.total === null) {
+        const usage = await getBinStorageUsage(binId, fileId);
+        if (binStorageQuotaBytes && usage.used + usage.reserved + contentRange.total > binStorageQuotaBytes) {
+          quotaExceeded = true;
+          state = null;
+          return;
+        }
+        state.total = contentRange.total;
+      }
+      state.pending.push(range);
+      await writeUploadState(binId, fileId, state);
+    });
   });
   if (!state) {
     if (existsSync(filePath)) {
@@ -883,7 +972,9 @@ async function onWriteFile(req, res, args) {
       req.on('end', () => sendFileReference(req, res, binId, fileId));
       return;
     }
-    return res.writeHead(409).end('Conflicting upload range or total size');
+    return res
+      .writeHead(quotaExceeded ? 413 : 409)
+      .end(quotaExceeded ? 'Bin storage quota exceeded' : 'Conflicting upload range or total size');
   }
   if (duplicate) {
     req.resume();
@@ -921,28 +1012,29 @@ async function onWriteFile(req, res, args) {
     try {
       let complete = false;
       await withUploadLock(statePath, async () => {
-        const current = await readUploadState(binId, fileId);
-        if (!current) throw new Error('Upload session disappeared');
-        current.pending = current.pending.filter((item) => item.start !== range.start || item.end !== range.end);
-        current.ranges = mergeRanges([...current.ranges, range]);
-        current.parts.push({ ...range, digest });
-        complete = isUploadComplete(current);
-        if (complete) {
-          const sha256 = await sha256File(uploadPath);
-          await writeUploadState(binId, fileId, current);
-          await rename(uploadPath, filePath);
-          await rm(statePath, { force: true });
-          await writeSystemMetadata(binId, fileId, {
-            sha256,
-            committedAt: new Date().toISOString(),
-            ...(current.immutable ? { immutable: true } : {}),
-          });
-        } else {
-          await writeUploadState(binId, fileId, current);
-        }
+        await withBinStorageLock(binId, async () => {
+          const current = await readUploadState(binId, fileId);
+          if (!current) throw new Error('Upload session disappeared');
+          current.pending = current.pending.filter((item) => item.start !== range.start || item.end !== range.end);
+          current.ranges = mergeRanges([...current.ranges, range]);
+          current.parts.push({ ...range, digest });
+          complete = isUploadComplete(current);
+          if (complete) {
+            const sha256 = await sha256File(uploadPath);
+            await rename(uploadPath, filePath);
+            await rm(statePath, { force: true });
+            await writeSystemMetadata(binId, fileId, {
+              sha256,
+              committedAt: new Date().toISOString(),
+              ...(current.immutable ? { immutable: true } : {}),
+            });
+            await recordCompletedFile(binId, fileId);
+          } else {
+            await writeUploadState(binId, fileId, current);
+          }
+        });
       });
       if (complete) {
-        await recordCompletedFile(binId, fileId);
         sendFileReference(req, res, binId, fileId);
       } else res.writeHead(202, jsonHeaders).end(JSON.stringify({ complete: false }));
     } catch {
@@ -1174,6 +1266,7 @@ function onGetUI(req, res, args) {
       const unlocked = !locked || (await isBinAuthorized(req, requestedBinId));
       const files = unlocked ? await Promise.all(fileIds.map((x) => readMetadata(requestedBinId, x, baseUrl))) : [];
       const bin = await getStorageBin(requestedBinId);
+      const storage = await getBinStorage(requestedBinId);
 
       state = {
         ...state,
@@ -1182,6 +1275,7 @@ function onGetUI(req, res, args) {
         filesLoaded: true,
         locked,
         unlocked,
+        binStorage: storage,
       };
     }
 
@@ -1214,70 +1308,92 @@ async function onUploadZip(req, res, args) {
   const tmpFile = join(binPath, uid);
 
   try {
-    await new Promise((resolve, reject) => {
-      req.on('end', () => {
-        const zipOptions = {
-          strictFileNames: true,
-          lazyEntries: true,
-          decodeStrings: true,
-        };
-
-        yauzl.open(tmpFile, zipOptions, (err, zip) => {
-          if (err) {
-            return reject(err);
-          }
-
-          zip.on('error', (err) => reject(err));
-
-          const writes = [];
-
-          zip.once('end', async () => {
-            await Promise.all(writes);
-            zip.close();
-            resolve(true);
-          });
-
-          zip.on('entry', (entry) => {
-            if (entry.fileName.endsWith('/')) {
-              zip.readEntry();
-              return;
-            }
-
-            zip.openReadStream(entry, async (err, readStream) => {
-              if (err) {
-                return reject(err);
-              }
-
-              const fileId = randomUUID();
-              const meta = { name: entry.fileName };
-              const stream = createWriteStream(join(binPath, fileId));
-
-              await writeFile(join(binPath, fileId + '.meta'), JSON.stringify(meta));
-              writes.push(
-                new Promise((resolve, reject) => {
-                  stream.on('finish', () => resolve(null));
-                  stream.on('error', reject);
-                }),
-              );
-              readStream.on('end', () => zip.readEntry());
-              readStream.pipe(stream);
-            });
-          });
-
-          zip.readEntry();
-        });
-      });
-
-      req.pipe(createWriteStream(tmpFile));
+    await new Promise<void>((resolve, reject) => {
+      const stream = createWriteStream(tmpFile);
+      stream.on('finish', resolve);
+      stream.on('error', reject);
+      req.pipe(stream);
+    });
+    const zipSize = await getZipUncompressedSize(tmpFile);
+    await withBinStorageLock(binId, async () => {
+      const usage = await getBinStorageUsage(binId);
+      if (binStorageQuotaBytes && usage.used + usage.reserved + zipSize > binStorageQuotaBytes) {
+        throw new Error('Bin storage quota exceeded');
+      }
+      await extractZipFile(tmpFile, binPath);
+      await importDiskCatalog();
     });
 
     res.writeHead(202).end(`{"binId": "${binId}"}`);
   } catch (error) {
     console.log(error);
-    res.writeHead(500).end();
+    res
+      .writeHead(error instanceof Error && error.message === 'Bin storage quota exceeded' ? 413 : 500)
+      .end(
+        error instanceof Error && error.message === 'Bin storage quota exceeded' ? 'Bin storage quota exceeded' : '',
+      );
   } finally {
     await unlink(tmpFile).catch(() => {});
   }
+}
+
+function getZipUncompressedSize(path: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    yauzl.open(path, { strictFileNames: true, lazyEntries: true, decodeStrings: true }, (error, zip) => {
+      if (error) return reject(error);
+      let size = 0;
+      zip.on('error', reject);
+      zip.on('entry', (entry) => {
+        size += entry.fileName.endsWith('/') ? 0 : entry.uncompressedSize;
+        zip.readEntry();
+      });
+      zip.once('end', () => {
+        zip.close();
+        resolve(size);
+      });
+      zip.readEntry();
+    });
+  });
+}
+
+function extractZipFile(path: string, binPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    yauzl.open(path, { strictFileNames: true, lazyEntries: true, decodeStrings: true }, (error, zip) => {
+      if (error) return reject(error);
+      zip.on('error', reject);
+      const writes = [];
+      zip.once('end', async () => {
+        try {
+          await Promise.all(writes);
+          zip.close();
+          resolve();
+        } catch (writeError) {
+          reject(writeError);
+        }
+      });
+      zip.on('entry', (entry) => {
+        if (entry.fileName.endsWith('/')) {
+          zip.readEntry();
+          return;
+        }
+        zip.openReadStream(entry, async (streamError, readStream) => {
+          if (streamError) return reject(streamError);
+          const fileId = randomUUID();
+          const stream = createWriteStream(join(binPath, fileId));
+          await writeFile(join(binPath, fileId + '.meta'), JSON.stringify({ name: entry.fileName }));
+          writes.push(
+            new Promise((writeResolve, writeReject) => {
+              stream.on('finish', () => writeResolve(null));
+              stream.on('error', writeReject);
+            }),
+          );
+          readStream.on('end', () => zip.readEntry());
+          readStream.pipe(stream);
+        });
+      });
+      zip.readEntry();
+    });
+  });
 }
 
 async function onLockStatus(req, res, args) {

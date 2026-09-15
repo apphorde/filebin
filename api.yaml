@@ -1,10 +1,10 @@
 openapi: 3.0.3
 info:
   title: FileBin API
-  description: File storage with virtual folders, temporary public bins, and private authenticated bins.
+  description: File storage with virtual folders, temporary public bins, private authenticated bins, and configurable per-bin storage quotas via `BIN_MAX_STORAGE_BYTES`.
   license:
     name: MIT
-  version: 1.2.0
+  version: 1.3.0
 servers:
   - url: __API_HOST__
 tags:
@@ -266,6 +266,7 @@ paths:
         '401': { $ref: '#/components/responses/Locked' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: The range overlaps a received or in-progress part, or has a conflicting total size. }
+        '413': { description: The upload would exceed the bin storage quota. }
     delete:
       tags: [files]
       summary: Delete a file
@@ -390,6 +391,7 @@ paths:
               schema: { $ref: '#/components/schemas/BinCreated' }
         '401': { $ref: '#/components/responses/Locked' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '413': { description: The archive would exceed the bin storage quota. }
   /lock/{binId}:
     parameters:
       - $ref: '#/components/parameters/BinId'
@@ -497,12 +499,15 @@ components:
         name: { type: string }
     BinSummary:
       type: object
-      required: [id, name, visibility, size, protected]
+      required: [id, name, visibility, size, storageUsedBytes, storageQuotaBytes, storageRemainingBytes, protected]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         visibility: { type: string, enum: [public, private] }
         size: { type: integer, minimum: 0 }
+        storageUsedBytes: { type: integer, minimum: 0 }
+        storageQuotaBytes: { type: integer, minimum: 0, nullable: true }
+        storageRemainingBytes: { type: integer, minimum: 0, nullable: true }
         protected: { type: boolean }
     BinDeletionScheduled:
       type: object

@@ -160,3 +160,4 @@ capability, so protect a bin immediately after creating it when this matters.
 | SESSION_SECRET             | Shared secret for signing session cookies                                     |
 | PUBLIC_BIN_RETENTION_HOURS | Public-bin inactivity period after the last completed upload, defaults to 168 |
 | PUBLIC_BIN_CLEANUP_TOKEN   | Bearer token accepted by the external cleanup scheduler endpoint              |
+| BIN_MAX_STORAGE_BYTES      | Per-bin storage quota in bytes; unset or `0` displays unlimited storage       |
