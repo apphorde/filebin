@@ -506,6 +506,7 @@ test('unavailable sign-in service renders a recovery page', async () => {
 test('administrative endpoints require an allowlisted subject', async () => {
   assert.equal((await fetch(`${baseUrl}/admin`)).status, 403);
   assert.equal((await fetch(`${baseUrl}/admin/stats`)).status, 403);
+  assert.equal((await fetch(`${baseUrl}/admin/reconcile`, { method: 'POST' })).status, 403);
   assert.equal(
     (
       await fetch(`${baseUrl}/admin/bins/missing/quota`, {

@@ -80,6 +80,28 @@ paths:
               schema: { $ref: '#/components/schemas/AdminStats' }
         '403': { description: Administrator access required }
         '503': { description: Database unavailable }
+  /admin/reconcile:
+    post:
+      tags: [bins]
+      summary: Reconcile the storage catalog with disk
+      description: Removes stale database records for missing bins, files, upload states, and quota overrides. Requires an OIDC subject listed in `ADMIN_SUBJECTS`.
+      operationId: reconcileAdminCatalog
+      security: [{ oidcSession: [] }]
+      responses:
+        '200':
+          description: Reconciliation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [removedBins, removedFiles, removedUploads, removedQuotaOverrides]
+                properties:
+                  removedBins: { type: integer, minimum: 0 }
+                  removedFiles: { type: integer, minimum: 0 }
+                  removedUploads: { type: integer, minimum: 0 }
+                  removedQuotaOverrides: { type: integer, minimum: 0 }
+        '403': { description: Administrator access required }
+        '503': { description: Database unavailable }
   /admin/bins/{binId}/quota:
     parameters:
       - $ref: '#/components/parameters/BinId'

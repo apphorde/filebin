@@ -262,6 +262,7 @@
           const adminStats = ref({ binCount: 0, defaultQuotaBytes: null, bins: [] });
           const adminLoading = ref(false);
           const adminError = ref('');
+          const adminMessage = ref('');
           const binList = ref([]);
           const binName = ref('');
           const binStorage = ref({ used: 0, quota: 0 });
@@ -452,6 +453,19 @@
               adminError.value = await response.text();
               return;
             }
+            await loadAdminStats();
+          }
+
+          async function reconcileCatalog() {
+            adminError.value = '';
+            adminMessage.value = '';
+            const response = await fetch('/admin/reconcile', { method: 'POST', credentials: 'include' });
+            if (!response.ok) {
+              adminError.value = await response.text();
+              return;
+            }
+            const result = await response.json();
+            adminMessage.value = `Removed ${result.removedFiles} stale files, ${result.removedUploads} stale uploads, and ${result.removedBins} stale bins.`;
             await loadAdminStats();
           }
 
@@ -760,8 +774,10 @@
             adminStats,
             adminLoading,
             adminError,
+            adminMessage,
             isAdminPage,
             grantExtraQuota,
+            reconcileCatalog,
             isHelp,
             isLanding,
             appStart,
@@ -1318,12 +1334,21 @@
           class-hidden="!isAdminPage"
         >
           <div class="w-full max-w-6xl">
-            <div class="mb-8">
-              <p class="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Platform administration</p>
-              <h1 class="mt-1 text-3xl font-black tracking-tight md:text-4xl">Storage controls</h1>
-              <p class="mt-2 text-slate-600">
-                Review every bin and grant additional storage beyond the platform default.
-              </p>
+            <div class="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p class="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Platform administration</p>
+                <h1 class="mt-1 text-3xl font-black tracking-tight md:text-4xl">Storage controls</h1>
+                <p class="mt-2 text-slate-600">
+                  Review every bin and grant additional storage beyond the platform default.
+                </p>
+              </div>
+              <button
+                class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-indigo-100 bg-white/80 px-4 text-sm font-bold text-indigo-700 hover:bg-white"
+                type="button"
+                on-click="reconcileCatalog()"
+              >
+                <lucide-icon icon="refresh-cw" size="14"></lucide-icon>Reconcile catalog
+              </button>
             </div>
             <div class="mb-6 grid gap-4 sm:grid-cols-2">
               <div class="reference-panel rounded-2xl border p-5">
@@ -1363,6 +1388,7 @@
               </button>
             </form>
             <p class="mb-4 text-sm text-red-600" class-hidden="!adminError">{{ adminError }}</p>
+            <p class="mb-4 text-sm text-emerald-700" class-hidden="!adminMessage">{{ adminMessage }}</p>
             <div class="reference-panel overflow-x-auto rounded-2xl border">
               <p class="p-5 text-slate-500" class-hidden="!adminLoading">Loading bins...</p>
               <table class="w-full min-w-[40rem] text-left text-sm" class-hidden="adminLoading">

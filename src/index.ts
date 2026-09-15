@@ -837,6 +837,63 @@ async function onAdminQuota(req, res, args) {
   res.writeHead(204).end();
 }
 
+async function reconcileStorageCatalog() {
+  const database = await getDatabase();
+  if (!database) return null;
+  await importDiskCatalog();
+
+  let removedBins = 0;
+  let removedFiles = 0;
+  let removedUploads = 0;
+  let removedQuotaOverrides = 0;
+  const bins = await database.all('SELECT id FROM storage_bins');
+
+  for (const bin of bins) {
+    if (!existsSync(join(rootDir, bin.id))) {
+      await database.run('DELETE FROM storage_uploads WHERE bin_id = ?', [bin.id]);
+      await database.run('DELETE FROM storage_files WHERE bin_id = ?', [bin.id]);
+      await database.run('DELETE FROM storage_bin_quota_overrides WHERE bin_id = ?', [bin.id]);
+      await database.run('DELETE FROM storage_bins WHERE id = ?', [bin.id]);
+      removedBins += 1;
+      continue;
+    }
+
+    const files = await database.all('SELECT id FROM storage_files WHERE bin_id = ?', [bin.id]);
+    for (const file of files) {
+      if (!existsSync(join(rootDir, bin.id, file.id))) {
+        await database.run('DELETE FROM storage_files WHERE bin_id = ? AND id = ?', [bin.id, file.id]);
+        removedFiles += 1;
+      }
+    }
+
+    const uploads = await database.all('SELECT file_id FROM storage_uploads WHERE bin_id = ?', [bin.id]);
+    for (const upload of uploads) {
+      if (!existsSync(getUploadStatePath(bin.id, upload.file_id))) {
+        await database.run('DELETE FROM storage_uploads WHERE bin_id = ? AND file_id = ?', [bin.id, upload.file_id]);
+        removedUploads += 1;
+      }
+    }
+  }
+
+  const overrides = await database.all('SELECT bin_id FROM storage_bin_quota_overrides');
+  for (const override of overrides) {
+    if (!existsSync(join(rootDir, override.bin_id))) {
+      await database.run('DELETE FROM storage_bin_quota_overrides WHERE bin_id = ?', [override.bin_id]);
+      removedQuotaOverrides += 1;
+    }
+  }
+
+  return { removedBins, removedFiles, removedUploads, removedQuotaOverrides };
+}
+
+async function onAdminReconcile(req, res) {
+  const context = await getAdminContext(req, res);
+  if (!context) return;
+  const result = await reconcileStorageCatalog();
+  await audit(req, 'admin.catalog.reconciled', 'storage');
+  res.writeHead(200, jsonHeaders).end(JSON.stringify(result));
+}
+
 async function readAuthState(req) {
   try {
     const profile = await getSessionProfile(req);
@@ -1843,6 +1900,7 @@ const match = router({
   'GET /auth/profile': onAuthProfile,
   'GET /api/bins': onAuthBins,
   'GET /admin/stats': onAdminStats,
+  'POST /admin/reconcile': onAdminReconcile,
   'PATCH /admin/bins/:binId/quota': onAdminQuota,
   'GET /auth/login': onAuthLogin,
   'GET /auth/callback': onAuthCallback,
