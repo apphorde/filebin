@@ -63,4 +63,6 @@ test('image uploads render a thumbnail preview', async ({ page }) => {
     'href',
     new RegExp(`/f/${binId}/${fileId}$`),
   );
+  await page.getByRole('button', { name: 'Close details' }).click();
+  await expect(page.getByRole('heading', { name: 'sunset.png' })).toBeHidden();
 });
