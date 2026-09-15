@@ -1287,6 +1287,12 @@ async function onDeleteFile(_req, res, args) {
     await Promise.all([rm(uploadPath, { force: true }), rm(uploadStatePath, { force: true })]);
     await rm(getSystemMetadataPath(binId, fileId), { force: true });
 
+    const database = await getDatabase();
+    if (database) {
+      await database.run('DELETE FROM storage_files WHERE bin_id = ? AND id = ?', [binId, fileId]);
+      await database.run('DELETE FROM storage_uploads WHERE bin_id = ? AND file_id = ?', [binId, fileId]);
+    }
+
     res.end('OK');
   });
 }
