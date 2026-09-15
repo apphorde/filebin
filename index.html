@@ -1056,8 +1056,9 @@
                   class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
                   on-click.stop="openCurrentBinAction('protect')"
                 >
-                  <lucide-icon icon="shield" size="15"></lucide-icon>{{ protectedBin ? 'Change protection' : 'Protect
-                  bin' }}
+                  <lucide-icon icon="shield" size="15"></lucide-icon>
+                  <template if="protectedBin">Change protection</template>
+                  <template if="!protectedBin">Protect bin</template>
                 </button>
                 <a
                   class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
