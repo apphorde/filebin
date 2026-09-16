@@ -560,7 +560,19 @@ components:
         name: { type: string }
     BinSummary:
       type: object
-      required: [id, name, visibility, size, storageUsedBytes, storageQuotaBytes, storageRemainingBytes, protected]
+      required:
+        [
+          id,
+          name,
+          visibility,
+          size,
+          storageUsedBytes,
+          storageQuotaBytes,
+          storageRemainingBytes,
+          deletionRequestedAt,
+          deletionExpiresAt,
+          protected,
+        ]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -569,6 +581,8 @@ components:
         storageUsedBytes: { type: integer, minimum: 0 }
         storageQuotaBytes: { type: integer, minimum: 0, nullable: true }
         storageRemainingBytes: { type: integer, minimum: 0, nullable: true }
+        deletionRequestedAt: { type: integer, minimum: 0, nullable: true }
+        deletionExpiresAt: { type: integer, minimum: 0, nullable: true }
         protected: { type: boolean }
     BinDeletionScheduled:
       type: object

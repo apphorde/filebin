@@ -587,12 +587,13 @@ async function getAdminContext(req, res) {
 
 async function listOwnedBins(database, principal) {
   const bins = await database.all(
-    `SELECT b.id, b.name, b.visibility, COALESCE(SUM(f.size), 0) AS size
+    `SELECT b.id, b.name, b.visibility, b.deletion_requested_at, b.deletion_expires_at,
+            COALESCE(SUM(f.size), 0) AS size
      FROM storage_bins b
      LEFT JOIN storage_files f ON f.bin_id = b.id
      WHERE rtrim(replace(b.owner_issuer, '"', ''), '/') = rtrim(?, '/')
        AND replace(b.owner_subject, '"', '') = ?
-     GROUP BY b.id, b.visibility
+      GROUP BY b.id, b.visibility, b.deletion_requested_at, b.deletion_expires_at
      ORDER BY b.created_at DESC`,
     [principal.issuer, principal.subject],
   );
@@ -604,6 +605,8 @@ async function listOwnedBins(database, principal) {
         storageUsedBytes: Number(bin.size || 0),
         storageQuotaBytes: storageQuotaBytes || null,
         storageRemainingBytes: storageQuotaBytes ? Math.max(0, storageQuotaBytes - Number(bin.size || 0)) : null,
+        deletionRequestedAt: bin.deletion_requested_at || null,
+        deletionExpiresAt: bin.deletion_expires_at || null,
         protected: await isBinLocked(bin.id),
       };
     }),
