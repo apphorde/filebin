@@ -265,6 +265,8 @@
           const adminMessage = ref('');
           const binList = ref([]);
           const binName = ref('');
+          const binDeletionRequestedAt = ref(null);
+          const binDeletionExpiresAt = ref(null);
           const binStorage = ref({ used: 0, quota: 0 });
           const files = ref([]);
           const filesLoaded = ref(false);
@@ -314,6 +316,10 @@
                 protected: protectedBin.value,
               },
           );
+          const binScheduledForDeletion = computed(
+            () => currentBin.value.deletionRequestedAt || binDeletionRequestedAt.value,
+          );
+          const binDeletionDate = computed(() => currentBin.value.deletionExpiresAt || binDeletionExpiresAt.value);
           const canChangeVisibility = computed(() => binList.value.some((bin) => bin.id === binId.value));
           const storageRemaining = computed(() =>
             binStorage.value.quota ? Math.max(0, binStorage.value.quota - binStorage.value.used) : null,
@@ -727,11 +733,15 @@
             filesLoaded,
             binId,
             binName,
+            binDeletionRequestedAt,
+            binDeletionExpiresAt,
             binStorage,
             storageRemaining,
             storageUsagePercent,
             binList,
             currentBin,
+            binScheduledForDeletion,
+            binDeletionDate,
             canChangeVisibility,
             binAction,
             dragging,
@@ -1132,9 +1142,17 @@
               </div>
             </div>
           </section>
+          <p
+            class="-mt-2 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700"
+            class-hidden="!binScheduledForDeletion"
+          >
+            This bin is scheduled for deletion<template if="binDeletionDate">
+              on {{ formatBinDeletionDate(binDeletionDate) }}</template
+            >.
+          </p>
           <div class="reference-panel border rounded-[1.5rem] w-full overflow-x-auto p-2 md:p-3">
             <div class="flex items-center justify-between px-3 pb-3 pt-2">
-              <h2 class="text-lg font-black">Recent uploads</h2>
+              <h2 class="text-lg font-black">Files</h2>
               <span class="text-sm font-medium text-slate-500">{{ files?.length || 0 }} items</span>
             </div>
             <div class="border-t border-indigo-50 pt-2">
@@ -1515,7 +1533,7 @@
                           <span
                             class="rounded-full bg-rose-50 px-2 py-0.5 text-rose-700"
                             class-hidden="!bin.deletionRequestedAt"
-                            >Going away<template if="bin.deletionExpiresAt">
+                            ><template if="bin.deletionExpiresAt">
                               {{ formatBinDeletionDate(bin.deletionExpiresAt) }}</template
                             ></span
                           >

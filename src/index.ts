@@ -1455,6 +1455,8 @@ function onGetUI(req, res, args) {
         locked,
         unlocked,
         binStorage: storage,
+        binDeletionRequestedAt: bin?.deletion_requested_at || null,
+        binDeletionExpiresAt: bin?.deletion_expires_at || null,
       };
     }
 
