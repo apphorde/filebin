@@ -17,7 +17,6 @@
     "format": "prettier --write .",
     "start": "node ./dist/server.js"
   },
-  "prettier": "@cloud-cli/prettier-config",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/apphorde/filebin.git"
