@@ -59,7 +59,14 @@ test('image uploads render a thumbnail preview', async ({ page }) => {
   await page.goto(`/app?bin=${binId}`, { waitUntil: 'networkidle' });
 
   await expect(page.locator('img[alt="sunset.png"]')).toHaveAttribute('src', new RegExp(`/f/${binId}/${fileId}$`));
-  await page.getByRole('button', { name: 'File actions' }).click();
+  const fileActions = page.getByRole('button', { name: 'File actions' });
+  await fileActions.click();
+  const [triggerBox, menuBox] = await Promise.all([
+    fileActions.boundingBox(),
+    page.locator('[id^="file-menu-"]').boundingBox(),
+  ]);
+  expect(menuBox.y).toBeGreaterThanOrEqual(triggerBox.y);
+  expect(menuBox.x).toBeGreaterThan(triggerBox.x - 200);
   await page.getByRole('button', { name: 'Show details' }).click();
   await expect(page.getByRole('heading', { name: 'sunset.png' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Download' })).toHaveAttribute(

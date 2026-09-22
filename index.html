@@ -143,7 +143,7 @@
           <button
             class="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-white hover:text-indigo-600"
             type="button"
-            on-click.stop="toggleMenu(file)"
+            on-click.stop="toggleMenu(file, $event)"
             aria-label="File actions"
           >
             <lucide-icon icon="ellipsis" size="18"></lucide-icon>
@@ -208,8 +208,15 @@
             return String(file.type || '').startsWith('image/') || /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(file.name);
           }
 
-          function toggleMenu(file) {
-            document.getElementById(`file-menu-${file.id}`)?.togglePopover();
+          function toggleMenu(file, event) {
+            const menu = document.getElementById(`file-menu-${file.id}`);
+            if (!menu) return;
+            if (menu.matches(':popover-open')) return menu.hidePopover();
+            const bounds = event.currentTarget.getBoundingClientRect();
+            menu.style.position = 'fixed';
+            menu.style.top = `${Math.min(window.innerHeight - 8, bounds.bottom + 6)}px`;
+            menu.style.left = `${Math.max(8, bounds.right - 176)}px`;
+            menu.showPopover();
           }
 
           function displayName(name) {
@@ -584,9 +591,16 @@
             }
           }
 
-          function toggleBinMenu(bin) {
+          function toggleBinMenu(bin, event) {
             const menuId = bin.id === binId.value ? 'current-bin-menu' : `bin-menu-${bin.id}`;
-            document.getElementById(menuId)?.togglePopover();
+            const menu = document.getElementById(menuId);
+            if (!menu) return;
+            if (menu.matches(':popover-open')) return menu.hidePopover();
+            const bounds = event.currentTarget.getBoundingClientRect();
+            menu.style.position = 'fixed';
+            menu.style.top = `${Math.min(window.innerHeight - 8, bounds.bottom + 6)}px`;
+            menu.style.left = `${Math.max(8, bounds.right - 224)}px`;
+            menu.showPopover();
           }
 
           function openCurrentBinAction(action) {
@@ -1091,7 +1105,7 @@
               <button
                 class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-white/80 text-indigo-700 hover:bg-white"
                 type="button"
-                on-click="toggleBinMenu(currentBin)"
+                on-click="toggleBinMenu(currentBin, $event)"
                 aria-label="Bin actions"
               >
                 <lucide-icon icon="ellipsis" size="16"></lucide-icon>
@@ -1566,7 +1580,7 @@
                           <button
                             class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-gray-500 hover:bg-indigo-50 hover:text-indigo-700"
                             type="button"
-                            on-click.stop="toggleBinMenu(bin)"
+                            on-click.stop="toggleBinMenu(bin, $event)"
                             aria-label="Bin actions"
                           >
                             <lucide-icon icon="ellipsis" size="14" icon-classes="h-4 w-4"></lucide-icon>
