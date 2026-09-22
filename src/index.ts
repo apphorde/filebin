@@ -1426,6 +1426,14 @@ function onGetUI(req, res, args) {
     const requestedBinId = binId || new URL(req.url, 'http://localhost').searchParams.get('bin');
     let state: any = await readAuthState(req);
     const isAdminPage = new URL(req.url, 'http://localhost').pathname === '/admin';
+
+    if (getCookie(req, 'filebin_session') && !state.profile && !oidcMissingConfiguration.length) {
+      const loginUrl = new URL('/auth/login', getProxyHost(req));
+      loginUrl.searchParams.set('url', String(new URL(req.url, getProxyHost(req))));
+      res.writeHead(302, { location: String(loginUrl) }).end();
+      return;
+    }
+
     state = { ...state, adminAccess: isAdminPrincipal(state.profile && { subject: state.profile.sub }) };
 
     if (isAdminPage) {

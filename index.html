@@ -356,6 +356,7 @@
             ),
           );
           const profile = ref(null);
+          const authLoading = ref(true);
           const dragging = ref(false);
           const creating = ref(false);
           const locked = ref(false);
@@ -398,8 +399,14 @@
           const binAction = ref('rename');
 
           onInit(async () => {
-            const response = await fetch('/auth/profile', { credentials: 'include' });
-            profile.value = response.ok ? await response.json() : null;
+            try {
+              const response = await fetch('/auth/profile', { credentials: 'include' });
+              profile.value = response.ok ? await response.json() : null;
+            } catch {
+              profile.value = null;
+            } finally {
+              authLoading.value = false;
+            }
             if (profile.value) {
               binList.value = await getMyBins();
             }
@@ -857,6 +864,7 @@
             signIn,
             signOut,
             profile,
+            authLoading,
             adminAccess,
             adminStats,
             adminLoading,
@@ -936,7 +944,7 @@
                   <span class="sr-only">Signed in as {{ profile?.name }}</span>
                 </span>
               </template>
-              <template if="!profile">
+              <template if="!profile && !authLoading">
                 <button
                   class="h-10 w-10 p-0 text-white inline-flex items-center justify-center gap-2 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none border border-blue-600 bg-blue-600 hover:bg-blue-700 md:w-auto md:px-4"
                   on-click="signIn(true)"
@@ -968,7 +976,7 @@
                   My bins
                 </a>
               </template>
-              <template if="!profile">
+              <template if="!profile && !authLoading">
                 <a
                   class="rounded-xl border border-indigo-200 bg-white/70 px-4 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-white"
                   href="/app"
@@ -1006,7 +1014,7 @@
                       <lucide-icon icon="folder" size="14" icon-classes="h-4 w-4"></lucide-icon>
                     </a>
                   </template>
-                  <template if="!profile">
+                  <template if="!profile && !authLoading">
                     <button
                       class="inline-flex items-center gap-2 rounded-2xl border border-indigo-200 bg-white/70 px-5 py-3.5 font-bold text-indigo-700 hover:bg-white"
                       on-click="signIn()"
@@ -1699,7 +1707,7 @@
                   <span>Create a file bin</span>
                 </button>
               </div>
-              <template if="!profile && !binList?.length">
+              <template if="!profile && !authLoading && !binList?.length">
                 <p class="mt-10 text-sm text-gray-500">Sign in to keep your bins available across devices.</p>
               </template>
             </div>
