@@ -39,7 +39,10 @@ test('bin actions open the rename dialog', async ({ page }) => {
   await page.goto(`/app?bin=${binId}`, { waitUntil: 'networkidle' });
   await expect(page.getByText('Storage', { exact: true })).toBeVisible();
   await expect(page.getByText(/remaining/)).toBeVisible();
-  await page.getByRole('button', { name: 'Bin actions' }).click();
+  const binActions = page.getByRole('button', { name: 'Bin actions' });
+  await binActions.hover();
+  await expect(page.locator('.native-tooltip')).toHaveText('Bin actions');
+  await binActions.click();
   await page.getByRole('button', { name: 'Rename bin' }).click();
 
   await expect(page.getByRole('heading', { name: 'Rename bin' })).toBeVisible();

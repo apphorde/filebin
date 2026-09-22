@@ -468,6 +468,7 @@ test('renaming a locked bin moves protection and issues a cookie for the new ID'
 
 test('invalid and missing resources return contract status codes', async () => {
   const binId = await createBin();
+  let response;
   assert.equal(
     (await fetch(`${baseUrl}/bin/${binId}`, { method: 'PATCH', body: JSON.stringify({ newId: '../bad' }) })).status,
     400,
@@ -477,7 +478,9 @@ test('invalid and missing resources return contract status codes', async () => {
   assert.equal((await fetch(`${baseUrl}/meta/${binId}/missing`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/zip/missing`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/lock/missing`)).status, 404);
-  assert.equal((await fetch(`${baseUrl}/b/missing`)).status, 404);
+  response = await fetch(`${baseUrl}/b/missing`);
+  assert.equal(response.status, 404);
+  assert.match(await response.text(), /This bin is not here/);
 });
 
 test('OpenAPI JSON endpoint returns JSON', async () => {

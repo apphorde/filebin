@@ -1438,7 +1438,7 @@ function onGetUI(req, res, args) {
       const fileIds = await readBin(requestedBinId);
 
       if (fileIds === null) {
-        return notFound(res);
+        return notFoundPage(res);
       }
 
       const locked = await isBinLocked(requestedBinId);
@@ -1669,6 +1669,14 @@ async function onDownloadZip(_req, res, args) {
 
 function notFound(res) {
   res.writeHead(404).end('Not found');
+}
+
+function notFoundPage(res) {
+  res
+    .writeHead(404, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+    .end(
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Bin not found | File Bin</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:linear-gradient(145deg,#eff3ff,#e6edff 48%,#f4efff);color:#111a37;font-family:ui-rounded,"Avenir Next",system-ui,sans-serif}.card{box-sizing:border-box;width:min(100% - 2rem,28rem);padding:2.5rem;border:1px solid #dce4ff;border-radius:2rem;background:rgba(255,255,255,.92);box-shadow:0 18px 45px rgba(61,83,165,.14);text-align:center}.mark{display:grid;place-items:center;width:3.5rem;height:3.5rem;margin:0 auto 1.5rem;border-radius:1.1rem;background:#496ef0;color:#fff;font-size:1.5rem}h1{margin:0;font-size:1.75rem}p{margin:1rem 0 1.75rem;color:#5d6885;line-height:1.6}.actions{display:flex;justify-content:center;gap:.75rem;flex-wrap:wrap}a{padding:.75rem 1rem;border-radius:.85rem;font-weight:700;text-decoration:none;background:#496ef0;color:#fff}</style></head><body><main class="card"><div class="mark">?</div><h1>This bin is not here</h1><p>It may have been deleted, expired, or the link may be incomplete.</p><div class="actions"><a href="/app">Open File Bin</a></div></main></body></html>`,
+    );
 }
 
 function badRequest(res, message = 'Bad request') {
