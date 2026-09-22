@@ -60,6 +60,13 @@ test('image uploads render a thumbnail preview', async ({ page }) => {
 
   await expect(page.locator('img[alt="sunset.png"]')).toHaveAttribute('src', new RegExp(`/f/${binId}/${fileId}$`));
   const fileActions = page.getByRole('button', { name: 'File actions' });
+  await fileActions.hover();
+  const [tooltipBox, fileTriggerBox] = await Promise.all([
+    page.locator('.native-tooltip').boundingBox(),
+    fileActions.boundingBox(),
+  ]);
+  expect(tooltipBox.y).toBeGreaterThan(fileTriggerBox.y);
+  expect(tooltipBox.y - (fileTriggerBox.y + fileTriggerBox.height)).toBeLessThan(100);
   await fileActions.click();
   const [triggerBox, menuBox] = await Promise.all([
     fileActions.boundingBox(),
