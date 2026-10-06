@@ -1113,16 +1113,42 @@ async function onAuthCreateS3Credential(req, res) {
   const principal = await getPrincipal(req);
   const database = await getDatabase();
   if (!principal || !database) return unauthenticated(res);
-  
+
+  const diagnosticId = randomUUID().slice(0, 8);
+  const startedAt = Date.now();
+  res.setHeader('x-diagnostic-id', diagnosticId);
+  const logDiagnostic = (stage: string, details: Record<string, unknown> = {}) => {
+    console.info(
+      JSON.stringify({
+        event: 's3_credential_connect',
+        diagnosticId,
+        stage,
+        elapsedMs: Date.now() - startedAt,
+        ...details,
+      }),
+    );
+  };
+
   const payload = await readJson(req);
   const { accessKey, secretKey } = payload;
-  if (typeof accessKey !== 'string' || !/^[A-Za-z0-9]{8,128}$/.test(accessKey) || typeof secretKey !== 'string' || secretKey.length < 16 || secretKey.length > 512) {
+  const accessKeyValid = typeof accessKey === 'string' && /^[A-Za-z0-9]{8,128}$/.test(accessKey);
+  const secretKeyValid = typeof secretKey === 'string' && secretKey.length >= 16 && secretKey.length <= 512;
+  if (!accessKeyValid || !secretKeyValid) {
+    logDiagnostic('request_validation_failed', {
+      status: 400,
+      accessKeyType: typeof accessKey,
+      accessKeyLength: typeof accessKey === 'string' ? accessKey.length : null,
+      accessKeyCharactersValid: typeof accessKey === 'string' ? /^[A-Za-z0-9]+$/.test(accessKey) : false,
+      secretKeyType: typeof secretKey,
+      secretKeyLength: typeof secretKey === 'string' ? secretKey.length : null,
+    });
     return badRequest(res, 'A valid S3 access key and secret are required');
   }
   let encryptedSecret;
   try {
     encryptedSecret = encryptS3Secret(secretKey);
   } catch {
+    logDiagnostic('local_encryption_configuration_failed', { status: 503 });
     return res.writeHead(503).end('S3 credential encryption is not configured');
   }
 
@@ -1130,11 +1156,34 @@ async function onAuthCreateS3Credential(req, res) {
     'SELECT id FROM user_s3_credentials WHERE user_issuer = ? AND user_subject = ? AND revoked_at IS NULL',
     [principal.issuer, principal.subject],
   );
-  if (existing) return res.writeHead(409).end('An S3 account is already connected');
+  if (existing) {
+    logDiagnostic('existing_account_conflict', { status: 409 });
+    return res.writeHead(409).end('An S3 account is already connected');
+  }
 
   try {
     await validateS3AccountCredentials(accessKey, secretKey);
-  } catch {
+  } catch (error) {
+    const providerError = error as {
+      name?: unknown;
+      Code?: unknown;
+      code?: unknown;
+      $metadata?: { httpStatusCode?: unknown };
+    };
+    const safeCode = [providerError.Code, providerError.code].find(
+      (code) => typeof code === 'string' && /^[A-Za-z0-9_.-]{1,80}$/.test(code),
+    );
+    logDiagnostic('s3_provider_validation_failed', {
+      status: 401,
+      providerErrorName:
+        typeof providerError.name === 'string' && /^[A-Za-z0-9_.-]{1,80}$/.test(providerError.name)
+        ? providerError.name
+        : 'UnknownError',
+      providerErrorCode: safeCode || null,
+      providerHttpStatus: Number.isInteger(providerError.$metadata?.httpStatusCode)
+        ? providerError.$metadata?.httpStatusCode
+        : null,
+    });
     return unauthorized(res);
   }
 
@@ -1148,6 +1197,7 @@ async function onAuthCreateS3Credential(req, res) {
   );
   await audit(req, 's3_credential.create', id);
   res.writeHead(201, jsonHeaders).end(JSON.stringify({ id, endpoint: s3Endpoint, region: s3Region, createdAt: now }));
+  logDiagnostic('connect_succeeded', { status: 201 });
 }
 
 async function validateS3AccountCredentials(accessKey, secretKey) {
