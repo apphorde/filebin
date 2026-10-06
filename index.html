@@ -291,7 +291,9 @@
           setBinPassword,
           removeBinPassword,
           getMyBins,
-          setBinVisibility,
+          getS3Account,
+          connectS3Account,
+          disconnectS3Account,
         } from 'filebin';
 
         export default function setup() {
@@ -373,7 +375,8 @@
             () => currentBin.value.deletionRequestedAt || binDeletionRequestedAt.value,
           );
           const binDeletionDate = computed(() => currentBin.value.deletionExpiresAt || binDeletionExpiresAt.value);
-          const canChangeVisibility = computed(() => binList.value.some((bin) => bin.id === binId.value));
+          const s3Account = ref(null);
+          const s3Error = ref('');
           const storageRemaining = computed(() =>
             binStorage.value.quota ? Math.max(0, binStorage.value.quota - binStorage.value.used) : null,
           );
@@ -397,6 +400,8 @@
           const selectedBin = ref(null);
           const selectedFile = ref(null);
           const binAction = ref('rename');
+          const s3AccessKeyInput = templateRef('s3accesskey');
+          const s3SecretKeyInput = templateRef('s3secretkey');
 
           onInit(async () => {
             try {
@@ -409,6 +414,11 @@
             }
             if (profile.value) {
               binList.value = await getMyBins();
+              try {
+                s3Account.value = await getS3Account();
+              } catch (error) {
+                s3Error.value = error.message;
+              }
             }
 
             if (isAdminPage) await loadAdminStats();
@@ -418,7 +428,7 @@
               protectedBin.value = status.locked;
               locked.value = status.locked && !status.unlocked;
 
-              if (!locked.value && !filesLoaded.value) updateList();
+              if (s3Account.value?.connected && !locked.value && !filesLoaded.value) updateList();
             }
           });
 
@@ -476,6 +486,11 @@
           }
 
           async function onAddBin(newTab = false) {
+            if (!profile.value) return signIn();
+            if (!s3Account.value?.connected) {
+              s3Error.value = 'Connect your S3 account before creating a bin.';
+              return;
+            }
             creating.value = true;
 
             const { binId } = await createBin();
@@ -541,6 +556,20 @@
             }
             const result = await response.json();
             adminMessage.value = `Removed ${result.removedFiles} stale files, ${result.removedUploads} stale uploads, and ${result.removedBins} stale bins.`;
+            await loadAdminStats();
+          }
+
+          async function cleanupDeletedBins() {
+            adminError.value = '';
+            adminMessage.value = '';
+            if (!confirm('Permanently delete all bins marked for deletion that have passed their grace period? This cannot be undone.')) return;
+            const response = await fetch('/admin/cleanup', { method: 'POST', credentials: 'include' });
+            if (!response.ok) {
+              adminError.value = await response.text();
+              return;
+            }
+            const result = await response.json();
+            adminMessage.value = `Permanently deleted ${result.deleted.length} bins.`;
             await loadAdminStats();
           }
 
@@ -626,10 +655,23 @@
             openBinAction(currentBin.value, action);
           }
 
-          async function onSetBinVisibility(visibility) {
-            const bin = currentBin.value;
-            await setBinVisibility(bin.id, visibility);
-            bin.visibility = visibility;
+          async function onConnectS3Account(event) {
+            event?.preventDefault();
+            s3Error.value = '';
+            try {
+              s3Account.value = await connectS3Account(s3AccessKeyInput.value.value.trim(), s3SecretKeyInput.value.value);
+              s3SecretKeyInput.value.value = '';
+              binList.value = await getMyBins();
+              if (binId.value) location.reload();
+            } catch (error) {
+              s3Error.value = error.message;
+            }
+          }
+
+          async function onDisconnectS3Account() {
+            if (!s3Account.value?.id || !confirm('Disconnect this S3 account? Existing bins will become unavailable until an account is connected again.')) return;
+            await disconnectS3Account(s3Account.value.id);
+            s3Account.value = { connected: false };
           }
 
           async function onBinActionSubmit() {
@@ -856,7 +898,10 @@
             openBinAction,
             openCurrentBinAction,
             toggleBinMenu,
-            onSetBinVisibility,
+            s3Account,
+            s3Error,
+            onConnectS3Account,
+            onDisconnectS3Account,
             onBinActionSubmit,
             openBin,
             setWorkspaceView,
@@ -1072,7 +1117,7 @@
 
         <main
           class="reference-screen flex flex-1 flex-col gap-5 p-4 pb-24 md:gap-7 md:p-8"
-          class-hidden="isLanding || isHelp || isAdminPage || !binId || locked"
+          class-hidden="isLanding || isHelp || isAdminPage || !binId || locked || !s3Account?.connected"
         >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3 min-w-0">
@@ -1140,9 +1185,7 @@
               >
                 <div class="border-b border-indigo-50 px-3 py-2">
                   <p class="truncate font-bold">{{ binId }}</p>
-                  <p class="mt-0.5 text-xs text-slate-500">
-                    {{ currentBin.visibility === 'private' ? 'Private bin' : 'Public bin' }}
-                  </p>
+                  <p class="mt-0.5 text-xs text-slate-500">Private S3 bucket</p>
                 </div>
                 <button
                   class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
@@ -1163,20 +1206,6 @@
                   attr-href="'/zip/' + binId"
                   ><lucide-icon icon="archive" size="15"></lucide-icon>Download ZIP</a
                 >
-                <button
-                  class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
-                  class-hidden="!canChangeVisibility || currentBin.visibility === 'private'"
-                  on-click.stop="onSetBinVisibility('private')"
-                >
-                  <lucide-icon icon="lock" size="15"></lucide-icon>Make private
-                </button>
-                <button
-                  class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left hover:bg-indigo-50"
-                  class-hidden="!canChangeVisibility || currentBin.visibility !== 'private'"
-                  on-click.stop="onSetBinVisibility('public')"
-                >
-                  <lucide-icon icon="globe" size="15"></lucide-icon>Make public
-                </button>
                 <button
                   class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-red-600 hover:bg-red-50"
                   on-click.stop="openCurrentBinAction('delete')"
@@ -1291,7 +1320,7 @@
         </main>
         <nav
           class="fixed inset-x-0 bottom-0 z-20 flex items-center justify-around border-t border-indigo-100 bg-white/95 px-3 py-2 shadow-[0_-8px_28px_rgba(61,83,165,0.1)] backdrop-blur md:hidden"
-          class-hidden="isLanding || isHelp || isAdminPage || !binId || locked"
+          class-hidden="isLanding || isHelp || isAdminPage || !binId || locked || !s3Account?.connected"
           aria-label="File navigation"
         >
           <button
@@ -1316,7 +1345,17 @@
         </nav>
         <aside
           class="flex flex-1 items-center justify-center p-6"
-          class-hidden="isLanding || isHelp || !binId || !locked"
+          class-hidden="isLanding || isHelp || !binId || s3Account?.connected"
+        >
+          <div class="w-full max-w-sm rounded-2xl border border-indigo-100 bg-white p-6 text-center shadow-sm">
+            <h1 class="text-xl font-bold">Connect an S3 account</h1>
+            <p class="my-3 text-sm text-slate-600">Connect the S3 account for this OIDC user before accessing private bins.</p>
+            <a class="inline-block rounded-xl bg-blue-700 px-4 py-2 font-semibold text-white" href="/app">Open workspace settings</a>
+          </div>
+        </aside>
+        <aside
+          class="flex flex-1 items-center justify-center p-6"
+          class-hidden="isLanding || isHelp || !binId || !locked || !s3Account?.connected"
         >
           <form class="w-full max-w-sm border rounded-lg p-6 shadow-sm" on-submit.stop.prevent="onUnlock()">
             <h1 class="text-2xl font-bold mb-2">This bin is locked</h1>
@@ -1460,6 +1499,7 @@
                   Review every bin and grant additional storage beyond the platform default.
                 </p>
               </div>
+              <div class="inline-flex gap-2">
               <button
                 class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-indigo-100 bg-white/80 px-4 text-sm font-bold text-indigo-700 hover:bg-white"
                 type="button"
@@ -1467,6 +1507,14 @@
               >
                 <lucide-icon icon="refresh-cw" size="14"></lucide-icon>Reconcile catalog
               </button>
+              <button
+                class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-red-100 bg-white/80 px-4 text-sm font-bold text-red-700 hover:bg-white"
+                type="button"
+                on-click="cleanupDeletedBins()"
+              >
+                <lucide-icon icon="trash" size="14"></lucide-icon>Cleanup deleted bins
+              </button>
+            </div>
             </div>
             <div class="mb-6 grid gap-4 sm:grid-cols-2">
               <div class="reference-panel rounded-2xl border p-5">
@@ -1538,6 +1586,26 @@
           class="reference-screen flex flex-1 items-center justify-center px-4 py-8 md:px-8"
           class-hidden="!appStart"
         >
+          <section class="mb-8 w-full max-w-6xl rounded-3xl border border-indigo-100 bg-white/90 p-5 shadow-sm" class-hidden="!profile || s3Account?.connected">
+            <form class="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end" on-submit.stop.prevent="onConnectS3Account($event)">
+              <div class="md:col-span-3">
+                <h2 class="text-lg font-bold">Connect your S3 account</h2>
+                <p class="mt-1 text-sm text-slate-600">FileBin stores file contents in your private S3 buckets. Create an access key in S3 and connect it here.</p>
+              </div>
+              <label class="grid gap-1 text-sm font-medium">S3 access key
+                <input ref="s3accesskey" autocomplete="off" required class="h-10 rounded-xl border border-indigo-100 px-3" />
+              </label>
+              <label class="grid gap-1 text-sm font-medium">S3 secret key
+                <input ref="s3secretkey" type="password" autocomplete="new-password" required class="h-10 rounded-xl border border-indigo-100 px-3" />
+              </label>
+              <button class="reference-primary h-10 rounded-xl px-4 font-bold text-white" type="submit">Connect account</button>
+              <p class="text-sm text-red-600 md:col-span-3" class-hidden="!s3Error">{{ s3Error }}</p>
+            </form>
+          </section>
+          <section class="mb-8 flex w-full max-w-6xl items-center justify-between rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-3" class-hidden="!s3Account?.connected">
+            <p class="text-sm font-semibold text-emerald-900">S3 account connected · {{ s3Account?.endpoint }}</p>
+            <button class="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-red-600" type="button" on-click="onDisconnectS3Account()">Disconnect</button>
+          </section>
           <template if="binList?.length">
             <div class="w-full max-w-6xl min-w-0">
               <div class="mb-7 flex items-end justify-between gap-4">
@@ -1639,9 +1707,7 @@
                         <p class="mt-1 truncate text-xs text-slate-400">{{ bin.id }}</p>
                         <div class="mt-2 flex items-center gap-2 text-xs text-gray-500">
                           <span>{{ formatSize(bin.size) }}</span>
-                          <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700"
-                            >{{ bin.visibility === 'private' ? 'Private' : 'Public' }}</span
-                          >
+                          <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700">Private S3 bucket</span>
                           <span
                             class="rounded-full bg-yellow-50 px-2 py-0.5 text-yellow-800"
                             class-hidden="!bin.protected"

@@ -35,11 +35,11 @@ export async function removeBin(bin) {
 
 /**
  * @param {string} bin
- * @param {string} newId
+ * @param {string} newName
  * @returns {Promise<boolean>} OK
  */
-export async function renameBin(bin, newId) {
-  if (!bin || !newId) {
+export async function renameBin(bin, newName) {
+  if (!bin || !newName) {
     return Promise.reject(new Error('Invalid bin id'));
   }
 
@@ -48,7 +48,7 @@ export async function renameBin(bin, newId) {
     mode: 'cors',
     credentials: 'include',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ newId }),
+    body: JSON.stringify({ name: newName }),
   });
 
   return req.ok || Promise.reject(new Error('Failed to rename bin'));
@@ -69,23 +69,6 @@ export async function renameBinName(bin, name) {
   });
 
   return req.ok || Promise.reject(new Error('Failed to rename bin'));
-}
-
-/**
- * @param {string} bin
- * @param {'public' | 'private'} visibility
- * @returns {Promise<boolean>} OK
- */
-export async function setBinVisibility(bin, visibility) {
-  const req = await fetch(u(`/bin/${bin}`), {
-    method: 'PATCH',
-    mode: 'cors',
-    credentials: 'include',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ visibility }),
-  });
-
-  return req.ok || Promise.reject(new Error('Failed to update bin visibility'));
 }
 
 /**
@@ -135,10 +118,11 @@ export function getZipUrl(bin) {
  * @param {string} bin
  * @returns {Promise<{ fileId: string }>}
  */
-export async function createFile(bin, metadata) {
+export async function createFile(bin, metadata, partSize = 8 * 1024 * 1024) {
   const req = await fetch(u(`/f/${bin}`), {
     ...p,
-    body: metadata ? JSON.stringify(metadata) : undefined,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ metadata: metadata || {}, partSize }),
   });
 
   return req.ok ? await req.json() : Promise.reject(new Error('Failed to create file'));
@@ -247,6 +231,8 @@ export async function writeMetadata(bin, file, content) {
   const req = await fetch(u('/' + ['meta', bin, file].filter(Boolean).join('/')), {
     method: 'PUT',
     mode: 'cors',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(content),
   });
   return req.ok || Promise.reject(new Error('Failed to update metadata'));
@@ -290,6 +276,25 @@ export async function setBinPassword(bin, password) {
 export async function removeBinPassword(bin) {
   const req = await fetch(u(`/lock/${bin}`), d);
   return req.ok || Promise.reject(new Error('Failed to remove bin protection'));
+}
+
+export async function getS3Account() {
+  const req = await fetch(u('/auth/s3-credentials'), g);
+  return req.ok ? await req.json() : Promise.reject(new Error('Failed to read connected S3 account'));
+}
+
+export async function connectS3Account(accessKey, secretKey) {
+  const req = await fetch(u('/auth/s3-credentials'), {
+    ...p,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ accessKey, secretKey }),
+  });
+  return req.ok ? await req.json() : Promise.reject(new Error((await req.text()) || 'Failed to connect S3 account'));
+}
+
+export async function disconnectS3Account(credentialId) {
+  const req = await fetch(u(`/auth/s3-credentials/${encodeURIComponent(credentialId)}`), d);
+  return req.ok || Promise.reject(new Error('Failed to disconnect S3 account'));
 }
 
 /**

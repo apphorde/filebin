@@ -142,7 +142,7 @@ async function upload(request, binId, path, options) {
       await json(request, `/f/${binId}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(metadata),
+        body: JSON.stringify({ metadata, partSize: options.partSize }),
       })
     ).fileId;
     console.error(`Created upload session ${fileId}`);

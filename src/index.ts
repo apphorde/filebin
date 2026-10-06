@@ -1,6 +1,8 @@
 import type { IncomingMessage } from 'node:http';
 import { createServer } from 'node:http';
 import {
+  createCipheriv,
+  createDecipheriv,
   createHash,
   createHmac,
   randomBytes,
@@ -8,16 +10,16 @@ import {
   scrypt as scryptCallback,
   timingSafeEqual,
 } from 'node:crypto';
-import { createReadStream, createWriteStream, existsSync, readFileSync } from 'node:fs';
+import { createReadStream, createWriteStream, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeFile, readFile, mkdir, readdir, stat, rm, rename, unlink } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import router from 'micro-router';
 import * as yazl from 'yazl';
 import * as yauzl from 'yauzl';
 import { load } from 'js-yaml';
 import { promisify } from 'node:util';
 
-const rootDir = process.env.ROOT_DIR;
 const authIssuer = process.env.AUTH_PROVIDER?.replace(/\/+$/, '');
 const oidcClientId = process.env.OIDC_CLIENT_ID;
 const oidcClientSecret = process.env.OIDC_CLIENT_SECRET;
@@ -77,11 +79,13 @@ function generateBinName() {
   return `${binAdjectives[randomBytes(1)[0] % binAdjectives.length]} ${binNouns[randomBytes(1)[0] % binNouns.length]}`;
 }
 
-const publicBinRetentionMs = Number(process.env.PUBLIC_BIN_RETENTION_HOURS || 168) * 60 * 60 * 1000;
-const publicBinCleanupToken = process.env.PUBLIC_BIN_CLEANUP_TOKEN;
+const binCleanupToken = process.env.BIN_CLEANUP_TOKEN;
 const binDeletionGraceMs = Number(process.env.BIN_DELETION_GRACE_HOURS || 168) * 60 * 60 * 1000;
 const binStorageQuotaBytes = Math.max(0, Number(process.env.BIN_MAX_STORAGE_BYTES || 0));
 const sessionCookieMaxAge = 30 * 24 * 60 * 60;
+const s3Endpoint = process.env.S3_DEFAULT_ENDPOINT || 'https://s3.api.apphor.de';
+const s3Region = process.env.S3_DEFAULT_REGION || 'local';
+const s3CredentialEncryptionKey = process.env.S3_CREDENTIAL_ENCRYPTION_KEY;
 const oidcMissingConfiguration = [
   !authIssuer && 'AUTH_PROVIDER',
   !oidcClientId && 'OIDC_CLIENT_ID',
@@ -117,16 +121,33 @@ const databasePromise = databaseModuleUrl
         expires_at INTEGER NOT NULL,
         created_at INTEGER NOT NULL
       );
-       CREATE TABLE IF NOT EXISTS storage_bins (
-         id TEXT PRIMARY KEY,
-         name TEXT NOT NULL,
-         visibility TEXT NOT NULL,
-        owner_issuer TEXT,
-        owner_subject TEXT,
-        created_at INTEGER NOT NULL,
-        last_completed_upload_at INTEGER,
-        imported_at INTEGER
-      );
+CREATE TABLE IF NOT EXISTS user_s3_credentials (
+          id TEXT PRIMARY KEY,
+          user_issuer TEXT NOT NULL,
+          user_subject TEXT NOT NULL,
+          access_key TEXT NOT NULL,
+          secret_key TEXT NOT NULL DEFAULT '',
+          encrypted_secret TEXT,
+          encryption_iv TEXT,
+          encryption_tag TEXT,
+          endpoint TEXT NOT NULL,
+          region TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          revoked_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_s3_credentials_user ON user_s3_credentials (user_issuer, user_subject);
+        CREATE TABLE IF NOT EXISTS storage_bins (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility = 'private'),
+         owner_issuer TEXT,
+         owner_subject TEXT,
+         bucket_name TEXT,
+         created_at INTEGER NOT NULL,
+         last_completed_upload_at INTEGER,
+         imported_at INTEGER
+       );
       CREATE TABLE IF NOT EXISTS storage_files (
         bin_id TEXT NOT NULL,
         id TEXT NOT NULL,
@@ -156,8 +177,18 @@ const databasePromise = databaseModuleUrl
         created_at INTEGER NOT NULL
       );
     `);
-        for (const column of ['name TEXT', 'deletion_requested_at INTEGER', 'deletion_expires_at INTEGER']) {
+        for (const column of [
+          'name TEXT',
+          'deletion_requested_at INTEGER',
+          'deletion_expires_at INTEGER',
+          'bucket_name TEXT',
+          'lock_salt TEXT',
+          'lock_hash TEXT',
+        ]) {
           await database.exec(`ALTER TABLE storage_bins ADD COLUMN ${column}`).catch(() => {});
+        }
+        for (const column of ['encrypted_secret TEXT', 'encryption_iv TEXT', 'encryption_tag TEXT', 'bucket_name TEXT']) {
+          await database.exec(`ALTER TABLE user_s3_credentials ADD COLUMN ${column}`).catch(() => {});
         }
         const unnamedBins = await database.all(`SELECT id FROM storage_bins WHERE name IS NULL OR name = ''`);
         await Promise.all(
@@ -165,6 +196,7 @@ const databasePromise = databaseModuleUrl
             database.run('UPDATE storage_bins SET name = ? WHERE id = ?', [generateBinName(), bin.id]),
           ),
         );
+        await database.run("UPDATE storage_bins SET visibility = 'private' WHERE visibility <> 'private'");
         for (const column of ['access_token', 'refresh_token']) {
           await database.exec(`ALTER TABLE oidc_sessions ADD COLUMN ${column} TEXT`).catch(() => {});
         }
@@ -173,7 +205,6 @@ const databasePromise = databaseModuleUrl
       .catch(() => null)
   : Promise.resolve(null);
 const jsonHeaders = { 'content-type': 'application/json' };
-const lockFileName = '.bin.meta';
 const sessionSecret = process.env.SESSION_SECRET || randomBytes(32);
 const scrypt = promisify(scryptCallback);
 const uploadLocks = new Map<string, Promise<void>>();
@@ -181,27 +212,315 @@ const binStorageLocks = new Map<string, Promise<void>>();
 const uploadRetentionMs = Number(process.env.UPLOAD_RETENTION_HOURS || 72) * 60 * 60 * 1000;
 const uploadCleanupIntervalMs = Number(process.env.UPLOAD_CLEANUP_INTERVAL_MINUTES || 60) * 60 * 1000;
 
+/* eslint-disable no-unused-vars */
+interface StorageBackend {
+  createBucket(_binId: string): Promise<void>;
+  bucketExists(_binId: string): Promise<boolean>;
+  writeObject(_binId: string, _fileId: string, _data: Uint8Array, _metadata?: Record<string, string>): Promise<{ sha256: string; size: number }>;
+  readObject(_binId: string, _fileId: string, _range?: { start: number; end: number }): Promise<{ data: any; size: number; metadata: Record<string, string>; sha256?: string }>;
+  deleteObject(_binId: string, _fileId: string): Promise<void>;
+  listObjects(_binId: string): Promise<string[]>;
+  getObjectMetadata(_binId: string, _fileId: string): Promise<{ size: number; metadata: Record<string, string>; sha256?: string; lastModified: number } | null>;
+  createMultipartUpload(_binId: string, _fileId: string, _metadata?: Record<string, string>): Promise<string>;
+  uploadPart(_binId: string, _fileId: string, _uploadId: string, _partNumber: number, _data: Uint8Array): Promise<{ etag: string }>;
+  completeMultipartUpload(_binId: string, _fileId: string, _uploadId: string, _parts: Array<{ partNumber: number; etag: string }>): Promise<{ sha256: string; size: number }>;
+  abortMultipartUpload(_binId: string, _fileId: string, _uploadId: string): Promise<void>;
+  getBucketUsage(_binId: string): Promise<{ used: number; reserved: number }>;
+  deleteBucket(_binId: string): Promise<void>;
+}
+/* eslint-enable no-unused-vars */
+
+class S3StorageBackend implements StorageBackend {
+  private principal: { issuer: string; subject: string };
+  private s3Client: any;
+
+  constructor(principal: { issuer: string; subject: string }) {
+    this.principal = principal;
+  }
+
+  async init() {
+    if (this.s3Client) return;
+    const database = await getDatabase();
+    if (!database) throw new Error('Database unavailable');
+
+    const creds = await database.get(
+      'SELECT * FROM user_s3_credentials WHERE user_issuer = ? AND user_subject = ? AND revoked_at IS NULL',
+      [this.principal.issuer, this.principal.subject],
+    );
+
+    if (!creds) throw new Error('No S3 credentials found for user');
+
+    const { S3Client } = await import('@aws-sdk/client-s3');
+    this.s3Client = new S3Client({
+      endpoint: creds.endpoint,
+      region: creds.region,
+      credentials: {
+        accessKeyId: creds.access_key,
+        secretAccessKey: await decryptS3Secret(creds),
+      },
+      forcePathStyle: true,
+    });
+  }
+
+  async createBucket(binId: string): Promise<void> {
+    await this.init();
+    const { CreateBucketCommand, HeadBucketCommand } = await import('@aws-sdk/client-s3');
+    try {
+      await this.s3Client.send(new CreateBucketCommand({ Bucket: binId }));
+    } catch (error) {
+      const name = error?.name;
+      if (name === 'BucketAlreadyOwnedByYou' || name === 'BucketAlreadyExists') {
+        await this.s3Client.send(new HeadBucketCommand({ Bucket: binId }));
+        return;
+      }
+      throw error;
+    }
+  }
+
+  async bucketExists(binId: string): Promise<boolean> {
+    await this.init();
+    const { HeadBucketCommand } = await import('@aws-sdk/client-s3');
+    try {
+      await this.s3Client.send(new HeadBucketCommand({ Bucket: binId }));
+      return true;
+    } catch (error) {
+      if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NotFound') return false;
+      throw error;
+    }
+  }
+
+  async getBucketName(binId: string): Promise<string> {
+    const database = await getDatabase();
+    if (!database) throw new Error('Database unavailable');
+    const bin = await database.get('SELECT bucket_name FROM storage_bins WHERE id = ?', [binId]);
+    if (!bin) {
+      throw new Error(`No catalog record for bin ${binId}`);
+    }
+    return bin.bucket_name || binId;
+  }
+
+  async writeObject(_binId: string, _fileId: string, data: Uint8Array, metadata?: Record<string, string>): Promise<{ sha256: string; size: number }> {
+    await this.init();
+    const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+    const digest = createHash('sha256').update(data).digest();
+    const sha256 = digest.toString('hex');
+    
+    const bucketName = await this.getBucketName(_binId);
+    
+    await this.s3Client.send(new PutObjectCommand({
+      Bucket: bucketName,
+      Key: `${_fileId}`,
+      Body: data,
+      Metadata: metadata,
+      ChecksumSHA256: digest.toString('base64'),
+    }));
+    return { sha256, size: data.length };
+  }
+
+  async readObject(_binId: string, _fileId: string, range?: { start: number; end: number }): Promise<{ data: ReadableStream<Uint8Array>; size: number; metadata: Record<string, string>; sha256?: string }> {
+    await this.init();
+    const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+    const bucketName = await this.getBucketName(_binId);
+    
+    const command = new GetObjectCommand({
+      Bucket: bucketName,
+      Key: `${_fileId}`,
+      Range: range ? `bytes=${range.start}-${range.end}` : undefined,
+    });
+    const response = await this.s3Client.send(command);
+    return {
+      data: response.Body as ReadableStream<Uint8Array>,
+      size: response.ContentLength || 0,
+      metadata: response.Metadata || {},
+      sha256: response.Metadata?.sha256,
+    };
+  }
+
+  async deleteObject(_binId: string, _fileId: string): Promise<void> {
+    await this.init();
+    const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+    const bucketName = await this.getBucketName(_binId);
+    await this.s3Client.send(new DeleteObjectCommand({
+      Bucket: bucketName,
+      Key: `${_fileId}`,
+    }));
+  }
+
+  async listObjects(_binId: string): Promise<string[]> {
+    await this.init();
+    const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+    const bucketName = await this.getBucketName(_binId);
+    const keys: string[] = [];
+    let continuationToken: string | undefined;
+    do {
+      const response = await this.s3Client.send(new ListObjectsV2Command({ Bucket: bucketName, ContinuationToken: continuationToken }));
+      keys.push(...(response.Contents || []).map((obj: any) => obj.Key).filter(Boolean));
+      continuationToken = response.NextContinuationToken;
+    } while (continuationToken);
+    return keys.filter((key) => !key.startsWith('.filebin/'));
+  }
+
+  async getObjectMetadata(_binId: string, _fileId: string): Promise<{ size: number; metadata: Record<string, string>; sha256?: string; lastModified: number } | null> {
+    await this.init();
+    const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+    
+    try {
+      const bucketName = await this.getBucketName(_binId);
+      const response = await this.s3Client.send(new HeadObjectCommand({
+        Bucket: bucketName,
+        Key: `${_fileId}`,
+        ChecksumMode: 'ENABLED',
+      }));
+      
+      return {
+        size: response.ContentLength || 0,
+        metadata: response.Metadata || {},
+        sha256: response.Metadata?.sha256,
+        lastModified: response.LastModified?.getTime() || Date.now(),
+      };
+    } catch (error) {
+      if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NotFound' || error?.name === 'NoSuchKey') return null;
+      throw error;
+    }
+  }
+
+  async createMultipartUpload(_binId: string, _fileId: string, metadata?: Record<string, string>): Promise<string> {
+    await this.init();
+    const { CreateMultipartUploadCommand } = await import('@aws-sdk/client-s3');
+    const bucketName = await this.getBucketName(_binId);
+    
+    const response = await this.s3Client.send(new CreateMultipartUploadCommand({
+      Bucket: bucketName,
+      Key: `${_fileId}`,
+      Metadata: metadata,
+    }));
+    return response.UploadId!;
+  }
+
+  async uploadPart(_binId: string, _fileId: string, _uploadId: string, partNumber: number, data: Uint8Array): Promise<{ etag: string }> {
+    await this.init();
+    const { UploadPartCommand } = await import('@aws-sdk/client-s3');
+    const checksum = createHash('sha256').update(data).digest('base64');
+    const bucketName = await this.getBucketName(_binId);
+    
+    const response = await this.s3Client.send(new UploadPartCommand({
+      Bucket: bucketName,
+      Key: `${_fileId}`,
+      UploadId: _uploadId,
+      PartNumber: partNumber,
+      Body: data,
+      ChecksumSHA256: checksum,
+    }));
+    return { etag: response.ETag!.replace(/"/g, '') };
+  }
+
+  async completeMultipartUpload(_binId: string, _fileId: string, _uploadId: string, _parts: Array<{ partNumber: number; etag: string }>): Promise<{ sha256: string; size: number }> {
+    await this.init();
+    const { CompleteMultipartUploadCommand } = await import('@aws-sdk/client-s3');
+    const bucketName = await this.getBucketName(_binId);
+    
+    await this.s3Client.send(new CompleteMultipartUploadCommand({
+      Bucket: bucketName,
+      Key: `${_fileId}`,
+      UploadId: _uploadId,
+      MultipartUpload: {
+        Parts: _parts.map((part) => ({ PartNumber: part.partNumber, ETag: `"${part.etag}"` })),
+      },
+    }));
+    const metadata = await this.getObjectMetadata(_binId, _fileId);
+    if (!metadata) throw new Error('Completed S3 upload could not be verified');
+    const { data } = await this.readObject(_binId, _fileId);
+    const hash = createHash('sha256');
+    for await (const chunk of data as AsyncIterable<Uint8Array>) hash.update(chunk);
+    return { sha256: hash.digest('hex'), size: metadata.size };
+  }
+
+  async abortMultipartUpload(_binId: string, _fileId: string, _uploadId: string): Promise<void> {
+    await this.init();
+    const { AbortMultipartUploadCommand } = await import('@aws-sdk/client-s3');
+    const bucketName = await this.getBucketName(_binId);
+    await this.s3Client.send(new AbortMultipartUploadCommand({
+      Bucket: bucketName,
+      Key: `${_fileId}`,
+      UploadId: _uploadId,
+    }));
+  }
+
+  async getBucketUsage(_binId: string): Promise<{ used: number; reserved: number }> {
+    await this.init();
+    const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+    const bucketName = await this.getBucketName(_binId);
+    let used = 0;
+    let continuationToken: string | undefined;
+    do {
+      const response = await this.s3Client.send(new ListObjectsV2Command({
+        Bucket: bucketName,
+        ContinuationToken: continuationToken,
+      }));
+      for (const obj of response.Contents || []) {
+        if (obj.Key && !obj.Key.startsWith('.filebin/')) used += obj.Size || 0;
+      }
+      continuationToken = response.NextContinuationToken;
+    } while (continuationToken);
+    return { used, reserved: 0 };
+  }
+
+  async deleteBucket(binId: string): Promise<void> {
+    await this.init();
+    const { DeleteBucketCommand, ListObjectsV2Command, DeleteObjectsCommand, ListObjectVersionsCommand, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+    const bucketName = await this.getBucketName(binId);
+    let continuationToken: string | undefined;
+
+    do {
+      const response = await this.s3Client.send(new ListObjectsV2Command({
+        Bucket: bucketName,
+        ContinuationToken: continuationToken,
+      }));
+      const objectsToDelete = (response.Contents || []).map((obj: any) => ({ Key: obj.Key })).filter((obj) => obj.Key);
+      if (objectsToDelete.length) await this.s3Client.send(new DeleteObjectsCommand({ Bucket: bucketName, Delete: { Objects: objectsToDelete } }));
+      continuationToken = response.NextContinuationToken;
+    } while (continuationToken);
+
+    let keyMarker: string | undefined;
+    let versionIdMarker: string | undefined;
+    do {
+      const response = await this.s3Client.send(new ListObjectVersionsCommand({ Bucket: bucketName, KeyMarker: keyMarker, VersionIdMarker: versionIdMarker }));
+      const versions = [
+        ...(response.Versions || []).map((item: any) => ({ Key: item.Key, VersionId: item.VersionId })),
+        ...(response.DeleteMarkers || []).map((item: any) => ({ Key: item.Key, VersionId: item.VersionId })),
+      ].filter((item) => item.Key && item.VersionId);
+      for (const item of versions) await this.s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, ...item }));
+      keyMarker = response.NextKeyMarker;
+      versionIdMarker = response.NextVersionIdMarker;
+    } while (keyMarker);
+
+    await this.s3Client.send(new DeleteBucketCommand({ Bucket: bucketName }));
+  }
+}
+
+async function getStorageBackend(principal?: { issuer: string; subject: string } | null): Promise<StorageBackend> {
+  if (!principal) throw new Error('Authentication required');
+  const testAdapters = (globalThis as any).__FILEBIN_TEST_ADAPTERS__;
+  if (process.env.NODE_ENV === 'test' && testAdapters?.storageFactory) return testAdapters.storageFactory(principal);
+  return new S3StorageBackend(principal);
+}
+
 type ByteRange = { start: number; end: number };
-type UploadPart = ByteRange & { digest: string };
+type UploadPart = ByteRange & { digest: string; partNumber: number; etag?: string };
 type UploadState = {
   total: number | null;
   ranges: ByteRange[];
   pending: ByteRange[];
   parts: UploadPart[];
+  metadata: Record<string, string>;
+  partSize: number;
   immutable?: boolean;
+  uploadId?: string;
 };
 type SystemMetadata = { immutable?: boolean; committedAt?: string; sha256?: string };
 
-function getUploadDataPath(binId: string, fileId: string) {
-  return join(rootDir, binId, `.upload-${fileId}`);
-}
-
 function getUploadStatePath(binId: string, fileId: string) {
-  return getUploadDataPath(binId, fileId) + '.json';
-}
-
-function getSystemMetadataPath(binId: string, fileId: string) {
-  return join(rootDir, binId, `${fileId}.system`);
+  return `${binId}:${fileId}`;
 }
 
 async function withUploadLock<T>(path: string, fn: () => Promise<T>) {
@@ -273,134 +592,103 @@ function isUploadComplete(state: UploadState) {
 }
 
 async function readUploadState(binId: string, fileId: string): Promise<UploadState | null> {
-  const path = getUploadStatePath(binId, fileId);
-  return existsSync(path) ? JSON.parse(await readFile(path, 'utf8')) : null;
+  const database = await getDatabase();
+  const row = database && (await database.get('SELECT state FROM storage_uploads WHERE bin_id = ? AND file_id = ?', [binId, fileId]));
+  return row ? JSON.parse(row.state) : null;
+}
+
+async function getUploadState(binId: string, fileId: string): Promise<UploadState | null> {
+  return readUploadState(binId, fileId);
 }
 
 async function writeUploadState(binId: string, fileId: string, state: UploadState) {
-  await writeFile(getUploadStatePath(binId, fileId), JSON.stringify(state));
+  const database = await getDatabase();
+  if (!database) throw new Error('Database unavailable');
+  await database.run(
+    `INSERT INTO storage_uploads (bin_id, file_id, state, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(bin_id, file_id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at`,
+    [binId, fileId, JSON.stringify(state), Date.now()],
+  );
 }
 
-async function readSystemMetadata(binId: string, fileId: string): Promise<SystemMetadata> {
-  const path = getSystemMetadataPath(binId, fileId);
-  try {
-    return existsSync(path) ? JSON.parse(await readFile(path, 'utf8')) : {};
-  } catch {
-    return {};
-  }
-}
-
-async function writeSystemMetadata(binId: string, fileId: string, metadata: SystemMetadata) {
-  const path = getSystemMetadataPath(binId, fileId);
-  const temporaryPath = `${path}.${randomUUID()}`;
-  await writeFile(temporaryPath, JSON.stringify(metadata));
-  await rename(temporaryPath, path);
-}
-
-async function sha256File(filePath: string) {
-  const hash = createHash('sha256');
-  await new Promise<void>((resolve, reject) => {
-    const stream = createReadStream(filePath);
-    stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('end', resolve);
-    stream.on('error', reject);
-  });
-  return hash.digest('hex');
+async function deleteUploadState(binId: string, fileId: string) {
+  const database = await getDatabase();
+  if (database) await database.run('DELETE FROM storage_uploads WHERE bin_id = ? AND file_id = ?', [binId, fileId]);
 }
 
 function getEtag(sha256: string | undefined) {
   return sha256 ? `"${sha256}"` : undefined;
 }
 
-async function recoverCompletedUpload(binId: string, fileId: string) {
-  const filePath = join(rootDir, binId, fileId);
-  const uploadPath = getUploadDataPath(binId, fileId);
-  const statePath = getUploadStatePath(binId, fileId);
-
-  if (!existsSync(statePath)) return false;
-
-  if (existsSync(filePath)) {
-    const state = JSON.parse(await readFile(statePath, 'utf8')) as UploadState;
-    if (!(await readSystemMetadata(binId, fileId)).sha256) {
-      await writeSystemMetadata(binId, fileId, {
-        sha256: await sha256File(filePath),
-        committedAt: new Date().toISOString(),
-        ...(state.immutable ? { immutable: true } : {}),
-      });
-    }
-    await Promise.all([rm(uploadPath, { force: true }), rm(statePath, { force: true })]);
-    return true;
-  }
-
-  const state = JSON.parse(await readFile(statePath, 'utf8')) as UploadState;
-  if (!isUploadComplete(state) || !existsSync(uploadPath)) return false;
-
-  const sha256 = await sha256File(uploadPath);
-  await rename(uploadPath, filePath);
-  await writeSystemMetadata(binId, fileId, {
-    sha256,
-    committedAt: new Date().toISOString(),
-    ...(state.immutable ? { immutable: true } : {}),
-  });
-  await rm(statePath, { force: true });
-  return true;
-}
-
 export type Options = { port?: number };
 
 async function onFileExists(_req, res, args) {
   const { binId = '', fileId = '' } = args;
-  const filePath = join(rootDir, binId, fileId);
 
-  if (!(binId && fileId && existsSync(filePath))) {
-    return notFound(res);
-  }
+  const principal = await getPrincipal(_req);
+  const storage = await getStorageBackend(principal);
 
-  const metadata = await readSystemMetadata(binId, fileId);
-  const stats = await stat(filePath);
-  res.setHeader('accept-ranges', 'bytes');
-  res.setHeader('content-length', stats.size);
-  if (metadata.sha256) res.setHeader('etag', getEtag(metadata.sha256));
-  res.end();
+  tryCatch(res, async () => {
+    const metadata = await readMetadataRecord(binId, fileId, storage);
+    if (!metadata) return notFound(res);
+
+    res.setHeader('accept-ranges', 'bytes');
+    res.setHeader('content-length', metadata.size);
+    if (metadata.system.sha256) res.setHeader('etag', getEtag(metadata.system.sha256));
+    res.end();
+  });
 }
 
 async function onReadFile(req, res, args) {
   const { binId = '', fileId = '' } = args;
-  const filePath = join(rootDir, binId, fileId);
-  const metaPath = filePath + '.meta';
 
-  if (!(binId && fileId && existsSync(filePath))) {
-    return notFound(res);
-  }
+  const principal = await getPrincipal(req);
+  const storage = await getStorageBackend(principal);
 
   tryCatch(res, async () => {
-    const meta = await readMetaFile(metaPath);
-    const system = await readSystemMetadata(binId, fileId);
-    const stats = await stat(filePath);
+    const metadata = await readMetadataRecord(binId, fileId, storage);
+    if (!metadata) return notFound(res);
 
-    Object.entries(meta).forEach(([key, value]) => res.setHeader(key == 'type' ? 'content-type' : key, String(value)));
+    const meta = metadata.user;
+    const systemSha256 = metadata.system.sha256;
 
-    res.setHeader('content-length', stats.size);
-    res.setHeader('last-modified', new Date(stats.mtime).toString());
+    if (typeof meta.type === 'string') res.setHeader('content-type', meta.type);
+    if (typeof meta.contentDisposition === 'string') res.setHeader('content-disposition', meta.contentDisposition);
+    if (typeof meta.cacheControl === 'string') res.setHeader('cache-control', meta.cacheControl);
+
+    res.setHeader('content-length', metadata.size);
+    res.setHeader('last-modified', new Date(metadata.lastModified).toString());
     res.setHeader('accept-ranges', 'bytes');
-    if (system.sha256) res.setHeader('etag', getEtag(system.sha256));
+    if (systemSha256) res.setHeader('etag', getEtag(systemSha256));
 
-    const range = parseByteRange(req.headers.range, stats.size);
+    const range = parseByteRange(req.headers.range, metadata.size);
     const ifRange = req.headers['if-range'];
-    const rangeAllowed = range && (!ifRange || ifRange === getEtag(system.sha256));
+    const rangeAllowed = range && (!ifRange || ifRange === getEtag(systemSha256));
     if (req.headers.range && !range) {
-      res.writeHead(416, { 'content-range': `bytes */${stats.size}` }).end();
+      res.writeHead(416, { 'content-range': `bytes */${metadata.size}` }).end();
       return;
     }
     if (rangeAllowed) {
       res.writeHead(206, {
         'content-length': range.end - range.start + 1,
-        'content-range': `bytes ${range.start}-${range.end}/${stats.size}`,
+        'content-range': `bytes ${range.start}-${range.end}/${metadata.size}`,
       });
-      createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+      const { data } = await storage.readObject(binId, fileId, { start: range.start, end: range.end });
+      if (data && typeof (data as any)[Symbol.asyncIterator] === 'function') {
+        for await (const chunk of data as AsyncIterable<Uint8Array>) res.write(chunk);
+        res.end();
+      } else {
+        (data as any).pipe(res);
+      }
       return;
     }
-    createReadStream(filePath).pipe(res);
+    const { data } = await storage.readObject(binId, fileId);
+    if (data && typeof (data as any)[Symbol.asyncIterator] === 'function') {
+      for await (const chunk of data as AsyncIterable<Uint8Array>) res.write(chunk);
+      res.end();
+    } else {
+      (data as any).pipe(res);
+    }
   });
 }
 
@@ -420,46 +708,78 @@ async function onReadUpload(_req, res, args) {
   const { binId = '', fileId = '' } = args;
   const statePath = getUploadStatePath(binId, fileId);
   const state = await withUploadLock(statePath, async () => {
-    await recoverCompletedUpload(binId, fileId);
     return readUploadState(binId, fileId);
   });
   if (!state) return notFound(res);
   res.writeHead(200, jsonHeaders).end(JSON.stringify({ total: state.total, ranges: state.ranges, complete: false }));
 }
 
-async function readMetadata(binId: string, fileId: string, baseUrl: string | URL) {
-  const filePath = join(...[rootDir, binId, fileId].filter(Boolean));
-
-  if (!(binId && existsSync(filePath))) {
-    return null;
+async function readMetadataRecord(binId: string, fileId: string, storage: StorageBackend) {
+  const database = await getDatabase();
+  if (!database) throw new Error('Database unavailable');
+  const row = await database.get(
+    'SELECT metadata, system_metadata, size, updated_at FROM storage_files WHERE bin_id = ? AND id = ?',
+    [binId, fileId],
+  );
+  if (!row) return null;
+  const object = await storage.getObjectMetadata(binId, fileId);
+  if (!object) return null;
+  if (Number(row.size) !== object.size) throw new Error('Stored object size does not match its catalog record');
+  const system = JSON.parse(row.system_metadata || '{}') as SystemMetadata;
+  if (object.sha256 && system.sha256 && object.sha256 !== system.sha256) {
+    throw new Error('Stored object checksum does not match its catalog record');
   }
+  return {
+    user: JSON.parse(row.metadata || '{}'),
+    system,
+    size: object.size,
+    lastModified: object.lastModified || Number(row.updated_at),
+  };
+}
 
-  try {
-    const metaPath = filePath + '.meta';
-    const meta = await readMetaFile(metaPath);
-    const system = await readSystemMetadata(binId, fileId);
-    const stats = await stat(filePath);
-
-    return {
-      ...meta,
-      id: fileId || undefined,
-      bin: binId,
-      size: stats.size,
-      name: meta.name || fileId,
-      lastModified: new Date(stats.mtime).toISOString(),
-      ...(system.sha256 ? { sha256: system.sha256, etag: getEtag(system.sha256) } : {}),
-      ...(system.immutable ? { immutable: true } : {}),
-      url: String(new URL('/' + ['f', binId, fileId].filter(Boolean).join('/'), baseUrl)),
-    };
-  } catch {
-    return null;
-  }
+async function readMetadata(binId: string, fileId: string, baseUrl: string | URL, principal?: { issuer: string; subject: string } | null) {
+  const storage = await getStorageBackend(principal);
+  const record = await readMetadataRecord(binId, fileId, storage);
+  if (!record) return null;
+  return {
+    ...record.user,
+    id: fileId || undefined,
+    bin: binId,
+    size: record.size,
+    name: record.user.name || fileId,
+    lastModified: new Date(record.lastModified).toISOString(),
+    ...(record.system.sha256 ? { sha256: record.system.sha256, etag: getEtag(record.system.sha256) } : {}),
+    ...(record.system.immutable ? { immutable: true } : {}),
+    url: String(new URL('/' + ['f', binId, fileId].filter(Boolean).join('/'), baseUrl)),
+  };
 }
 
 async function onReadMetadata(req, res, args) {
   const { binId = '', fileId = '' } = args;
   const baseUrl = getProxyHost(req);
-  const metadata = await readMetadata(binId, fileId, baseUrl);
+  const principal = await getPrincipal(req);
+  if (!fileId) {
+    const database = await getDatabase();
+    const bin = database && await database.get(
+      `SELECT b.id, b.name, b.created_at, b.deletion_requested_at, b.deletion_expires_at,
+              COALESCE(SUM(f.size), 0) AS size
+       FROM storage_bins b LEFT JOIN storage_files f ON f.bin_id = b.id
+       WHERE b.id = ? GROUP BY b.id`,
+      [binId],
+    );
+    if (!bin) return notFound(res);
+    res.writeHead(200, jsonHeaders).end(JSON.stringify({
+      id: bin.id,
+      name: bin.name,
+      visibility: 'private',
+      size: Number(bin.size || 0),
+      protected: await isBinLocked(binId),
+      deletionRequestedAt: bin.deletion_requested_at || null,
+      deletionExpiresAt: bin.deletion_expires_at || null,
+    }));
+    return;
+  }
+  const metadata = await readMetadata(binId, fileId, baseUrl, principal);
 
   if (!metadata) {
     return notFound(res);
@@ -497,7 +817,60 @@ async function getOidcUserInfo(accessToken: string): Promise<any> {
 }
 
 async function getDatabase() {
+  const testAdapters = (globalThis as any).__FILEBIN_TEST_ADAPTERS__;
+  if (process.env.NODE_ENV === 'test' && testAdapters?.database) return testAdapters.database;
   return databasePromise;
+}
+
+function getCredentialEncryptionKey() {
+  const configured = s3CredentialEncryptionKey || process.env.SESSION_SECRET;
+  if (!configured) throw new Error('S3_CREDENTIAL_ENCRYPTION_KEY or SESSION_SECRET must be configured');
+  if (/^[a-f0-9]{64}$/i.test(configured)) return Buffer.from(configured, 'hex');
+  const key = Buffer.from(configured, 'base64url');
+  return key.length === 32 ? key : createHash('sha256').update(configured).digest();
+}
+
+function encryptS3Secret(secret: string) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', getCredentialEncryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(secret, 'utf8'), cipher.final()]);
+  return {
+    encrypted_secret: encrypted.toString('base64url'),
+    encryption_iv: iv.toString('base64url'),
+    encryption_tag: cipher.getAuthTag().toString('base64url'),
+  };
+}
+
+async function decryptS3Secret(credentials) {
+  if (credentials.encrypted_secret && credentials.encryption_iv && credentials.encryption_tag) {
+    const decipher = createDecipheriv(
+      'aes-256-gcm',
+      getCredentialEncryptionKey(),
+      Buffer.from(credentials.encryption_iv, 'base64url'),
+    );
+    decipher.setAuthTag(Buffer.from(credentials.encryption_tag, 'base64url'));
+    return Buffer.concat([
+      decipher.update(Buffer.from(credentials.encrypted_secret, 'base64url')),
+      decipher.final(),
+    ]).toString('utf8');
+  }
+
+  // Re-encrypt legacy plaintext records on first successful use.
+  if (credentials.secret_key) {
+    const encrypted = encryptS3Secret(credentials.secret_key);
+    const database = await getDatabase();
+    if (database) {
+      await database.run(
+        `UPDATE user_s3_credentials
+         SET encrypted_secret = ?, encryption_iv = ?, encryption_tag = ?, secret_key = '', updated_at = ?
+         WHERE id = ? AND secret_key IS NOT NULL`,
+        [encrypted.encrypted_secret, encrypted.encryption_iv, encrypted.encryption_tag, Date.now(), credentials.id],
+      );
+    }
+    return credentials.secret_key;
+  }
+
+  throw new Error('S3 account secret is unavailable or cannot be decrypted');
 }
 
 function getCookie(req, name: string) {
@@ -549,6 +922,11 @@ async function refreshOidcSession(database, session) {
 }
 
 async function getSessionProfile(req) {
+  const testAdapters = (globalThis as any).__FILEBIN_TEST_ADAPTERS__;
+  const testSubject = process.env.NODE_ENV === 'test' && testAdapters ? req.headers['x-test-oidc-sub'] : null;
+  if (testSubject) {
+    return { sub: String(testSubject), iss: 'https://test-issuer.invalid', name: 'Test User' };
+  }
   const raw = getCookie(req, 'filebin_session');
   if (!raw) return null;
   const [id, signature] = raw.split('.');
@@ -563,6 +941,12 @@ async function getSessionProfile(req) {
 }
 
 async function getPrincipal(req) {
+  const testAdapters = (globalThis as any).__FILEBIN_TEST_ADAPTERS__;
+  const testSubject = process.env.NODE_ENV === 'test' && testAdapters ? req.headers['x-test-oidc-sub'] : null;
+  if (testSubject) {
+    const profile = { sub: String(testSubject), iss: 'https://test-issuer.invalid', name: 'Test User' };
+    return { issuer: profile.iss, subject: profile.sub, profile };
+  }
   const profile = await getSessionProfile(req);
   return profile?.sub ? { issuer: profile.iss || authIssuer, subject: profile.sub, profile } : null;
 }
@@ -625,41 +1009,27 @@ async function getBinQuota(binId: string) {
   return binStorageQuotaBytes + Math.max(0, Number(override?.extra_bytes || 0));
 }
 
-async function getBinStorage(binId: string) {
-  const usage = await getBinStorageUsage(binId);
+async function getBinStorage(binId: string, principal?: { issuer: string; subject: string } | null) {
+  const storage = await getStorageBackend(principal);
+  const usage = await storage.getBucketUsage(binId);
   return { used: usage.used, quota: await getBinQuota(binId) };
 }
 
-async function getBinStorageUsage(binId: string, excludeFileId?: string) {
+async function getBinStorageUsage(binId: string, _excludeFileId?: string, principal?: { issuer: string; subject: string } | null) {
+  const storage = await getStorageBackend(principal);
+  const usage = await storage.getBucketUsage(binId);
+  let used = usage.used;
+  if (_excludeFileId) {
+    const existing = await storage.getObjectMetadata(binId, _excludeFileId);
+    if (existing) used = Math.max(0, used - existing.size);
+  }
   const database = await getDatabase();
-  const used = database
-    ? Number(
-        (
-          await database.get(
-            `SELECT COALESCE(SUM(size), 0) AS used FROM storage_files WHERE bin_id = ?${excludeFileId ? ' AND id <> ?' : ''}`,
-            excludeFileId ? [binId, excludeFileId] : [binId],
-          )
-        )?.used || 0,
-      )
-    : await readBin(binId).then((files) =>
-        files
-          ? Promise.all(
-              files
-                .filter((fileId) => fileId !== excludeFileId)
-                .map(async (fileId) => (await stat(join(rootDir, binId, fileId))).size),
-            ).then((sizes) => sizes.reduce((total, size) => total + size, 0))
-          : 0,
-      );
-
-  const allFiles = await readdir(join(rootDir, binId));
-  const reserved = await Promise.all(
-    allFiles
-      .filter((file) => file.startsWith('.upload-') && file.endsWith('.json'))
-      .filter((file) => file.slice('.upload-'.length, -'.json'.length) !== excludeFileId)
-      .map(async (file) => (await readUploadState(binId, file.slice('.upload-'.length, -'.json'.length)))?.total || 0),
-  ).then((sizes) => sizes.reduce((total, size) => total + size, 0));
-
-  return { used, reserved };
+  const uploadRows = database && (await database.all('SELECT state FROM storage_uploads WHERE bin_id = ?', [binId]));
+  const reserved = (uploadRows || []).reduce((sum, row) => {
+    const total = JSON.parse(row.state || '{}').total;
+    return sum + (Number.isSafeInteger(total) ? total : 0);
+  }, 0);
+  return { used, reserved: Math.max(usage.reserved, reserved) };
 }
 
 async function markBinForDeletion(req, binId: string) {
@@ -678,14 +1048,15 @@ async function markBinForDeletion(req, binId: string) {
 
 async function permanentlyDeleteBin(binId: string) {
   const database = await getDatabase();
-  await rm(join(rootDir, binId), { recursive: true, force: true });
-  await rm(join(rootDir, `${binId}.meta`), { force: true });
-  if (database) {
-    await database.run('DELETE FROM storage_uploads WHERE bin_id = ?', [binId]);
-    await database.run('DELETE FROM storage_files WHERE bin_id = ?', [binId]);
-    await database.run('DELETE FROM storage_bin_quota_overrides WHERE bin_id = ?', [binId]);
-    await database.run('DELETE FROM storage_bins WHERE id = ?', [binId]);
-  }
+  if (!database) throw new Error('Database unavailable');
+  const bin = await database.get('SELECT owner_issuer, owner_subject FROM storage_bins WHERE id = ?', [binId]);
+  if (!bin?.owner_issuer || !bin?.owner_subject) throw new Error(`Bin ${binId} has no owner; refusing destructive deletion`);
+  const storage = await getStorageBackend({ issuer: bin.owner_issuer, subject: bin.owner_subject });
+  await storage.deleteBucket(binId);
+  await database.run('DELETE FROM storage_uploads WHERE bin_id = ?', [binId]);
+  await database.run('DELETE FROM storage_files WHERE bin_id = ?', [binId]);
+  await database.run('DELETE FROM storage_bin_quota_overrides WHERE bin_id = ?', [binId]);
+  await database.run('DELETE FROM storage_bins WHERE id = ?', [binId]);
 }
 
 async function audit(req, action: string, target: string) {
@@ -700,71 +1071,17 @@ async function audit(req, action: string, target: string) {
     ]);
 }
 
-async function importDiskCatalog() {
+async function recordCompletedFile(binId: string, fileId: string, size: number, sha256: string, metadata: Record<string, string>, immutable = false) {
   const database = await getDatabase();
-  if (!database || !rootDir || !existsSync(rootDir)) return;
-  const now = Date.now();
-  const bins = await readdir(rootDir, { withFileTypes: true });
-  for (const entry of bins.filter((entry) => entry.isDirectory())) {
-    const binPath = join(rootDir, entry.name);
-    const binStats = await stat(binPath);
-    const files = await readdir(binPath);
-    const completed = files.filter(
-      (file) => !file.endsWith('.meta') && !file.endsWith('.system') && !file.startsWith('.upload-'),
-    );
-    const uploadTimes = await Promise.all(completed.map(async (file) => (await stat(join(binPath, file))).mtimeMs));
-    const lastCompletedUploadAt = uploadTimes.length ? Math.max(...uploadTimes) : null;
-    await database.run(
-      'INSERT OR IGNORE INTO storage_bins (id, name, visibility, created_at, last_completed_upload_at, imported_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [entry.name, generateBinName(), 'public', binStats.birthtimeMs || binStats.mtimeMs, lastCompletedUploadAt, now],
-    );
-    for (const fileId of completed) {
-      const filePath = join(binPath, fileId);
-      const [metadata, systemMetadata, fileStats] = await Promise.all([
-        readMetaFile(`${filePath}.meta`),
-        readSystemMetadata(entry.name, fileId),
-        stat(filePath),
-      ]);
-      await database.run(
-        'INSERT OR REPLACE INTO storage_files (bin_id, id, metadata, system_metadata, size, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [
-          entry.name,
-          fileId,
-          JSON.stringify(metadata),
-          JSON.stringify(systemMetadata),
-          fileStats.size,
-          fileStats.mtimeMs,
-        ],
-      );
-    }
-    for (const stateFile of files.filter((file) => file.startsWith('.upload-') && file.endsWith('.json'))) {
-      const fileId = stateFile.slice('.upload-'.length, -'.json'.length);
-      const statePath = join(binPath, stateFile);
-      const [state, stateStats] = await Promise.all([readFile(statePath, 'utf8'), stat(statePath)]);
-      await database.run(
-        'INSERT OR REPLACE INTO storage_uploads (bin_id, file_id, state, updated_at) VALUES (?, ?, ?, ?)',
-        [entry.name, fileId, state, stateStats.mtimeMs],
-      );
-    }
-  }
-}
-
-async function recordCompletedFile(binId: string, fileId: string) {
-  const database = await getDatabase();
-  if (!database) return;
-  const filePath = join(rootDir, binId, fileId);
-  const [metadata, systemMetadata, fileStats] = await Promise.all([
-    readMetaFile(`${filePath}.meta`),
-    readSystemMetadata(binId, fileId),
-    stat(filePath),
-  ]);
+  if (!database) throw new Error('Database unavailable');
+  const systemMetadata: SystemMetadata = { sha256, committedAt: new Date().toISOString(), ...(immutable ? { immutable: true } : {}) };
   const now = Date.now();
   await database.run(
     'INSERT OR REPLACE INTO storage_files (bin_id, id, metadata, system_metadata, size, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [binId, fileId, JSON.stringify(metadata), JSON.stringify(systemMetadata), fileStats.size, fileStats.mtimeMs],
+    [binId, fileId, JSON.stringify(metadata), JSON.stringify(systemMetadata), size, now],
   );
   await database.run('UPDATE storage_bins SET last_completed_upload_at = ? WHERE id = ?', [now, binId]);
-  await database.run('DELETE FROM storage_uploads WHERE bin_id = ? AND file_id = ?', [binId, fileId]);
+  await deleteUploadState(binId, fileId);
 }
 
 async function onAuthProfile(req, res) {
@@ -781,11 +1098,141 @@ async function onAuthBins(req, res) {
   res.writeHead(200, jsonHeaders).end(JSON.stringify(summaries));
 }
 
+async function onAuthS3Credentials(req, res) {
+  const principal = await getPrincipal(req);
+  const database = await getDatabase();
+  if (!principal || !database) return unauthenticated(res);
+  const credential = await database.get(
+    'SELECT id, endpoint, region, created_at, updated_at FROM user_s3_credentials WHERE user_issuer = ? AND user_subject = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1',
+    [principal.issuer, principal.subject],
+  );
+  res.writeHead(200, jsonHeaders).end(JSON.stringify({ connected: Boolean(credential), ...credential }));
+}
+
+async function onAuthCreateS3Credential(req, res) {
+  const principal = await getPrincipal(req);
+  const database = await getDatabase();
+  if (!principal || !database) return unauthenticated(res);
+  
+  const payload = await readJson(req);
+  const { accessKey, secretKey } = payload;
+  if (typeof accessKey !== 'string' || !/^[A-Za-z0-9]{8,128}$/.test(accessKey) || typeof secretKey !== 'string' || secretKey.length < 16 || secretKey.length > 512) {
+    return badRequest(res, 'A valid S3 access key and secret are required');
+  }
+  let encryptedSecret;
+  try {
+    encryptedSecret = encryptS3Secret(secretKey);
+  } catch {
+    return res.writeHead(503).end('S3 credential encryption is not configured');
+  }
+
+  const existing = await database.get(
+    'SELECT id FROM user_s3_credentials WHERE user_issuer = ? AND user_subject = ? AND revoked_at IS NULL',
+    [principal.issuer, principal.subject],
+  );
+  if (existing) return res.writeHead(409).end('An S3 account is already connected');
+
+  try {
+    await validateS3AccountCredentials(accessKey, secretKey);
+  } catch {
+    return unauthorized(res);
+  }
+
+  const id = randomUUID();
+  const now = Date.now();
+  await database.run(
+    `INSERT INTO user_s3_credentials
+       (id, user_issuer, user_subject, access_key, secret_key, encrypted_secret, encryption_iv, encryption_tag, endpoint, region, created_at, updated_at)
+     VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)`,
+    [id, principal.issuer, principal.subject, accessKey, encryptedSecret.encrypted_secret, encryptedSecret.encryption_iv, encryptedSecret.encryption_tag, s3Endpoint, s3Region, now, now],
+  );
+  await audit(req, 's3_credential.create', id);
+  res.writeHead(201, jsonHeaders).end(JSON.stringify({ id, endpoint: s3Endpoint, region: s3Region, createdAt: now }));
+}
+
+async function validateS3AccountCredentials(accessKey, secretKey) {
+  const testAdapters = (globalThis as any).__FILEBIN_TEST_ADAPTERS__;
+  if (process.env.NODE_ENV === 'test' && testAdapters?.validateS3Credentials) {
+    return testAdapters.validateS3Credentials(accessKey, secretKey);
+  }
+  const { S3Client, ListBucketsCommand } = await import('@aws-sdk/client-s3');
+  const client = new S3Client({
+    endpoint: s3Endpoint,
+    region: s3Region,
+    forcePathStyle: true,
+    credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
+  });
+  try {
+    await client.send(new ListBucketsCommand({}));
+  } finally {
+    client.destroy();
+  }
+}
+
+async function onAuthDeleteS3Credential(req, res, args) {
+  const principal = await getPrincipal(req);
+  const database = await getDatabase();
+  if (!principal || !database) return unauthenticated(res);
+  
+  const { credentialId } = args;
+  const creds = await database.get(
+    'SELECT id FROM user_s3_credentials WHERE id = ? AND user_issuer = ? AND user_subject = ? AND revoked_at IS NULL',
+    [credentialId, principal.issuer, principal.subject],
+  );
+  
+  if (!creds) return notFound(res);
+  
+  const now = Date.now();
+  await database.run(
+    "UPDATE user_s3_credentials SET revoked_at = ?, updated_at = ?, secret_key = '', encrypted_secret = NULL, encryption_iv = NULL, encryption_tag = NULL WHERE id = ?",
+    [now, now, credentialId]
+  );
+  
+  await audit(req, 's3_credential.revoke', credentialId);
+  res.writeHead(204).end();
+}
+
+async function onAdminListUserS3Credentials(req, res, args) {
+  const context = await getAdminContext(req, res);
+  if (!context) return;
+  const { database } = context;
+  
+  const { subject } = args;
+  const credentials = await database.all(
+    'SELECT id, user_issuer, user_subject, endpoint, region, created_at, updated_at, revoked_at FROM user_s3_credentials WHERE user_subject = ?',
+    [subject]
+  );
+  
+  res.writeHead(200, jsonHeaders).end(JSON.stringify(credentials));
+}
+
+async function onAdminRevokeUserS3Credential(req, res, args) {
+  const context = await getAdminContext(req, res);
+  if (!context) return;
+  const { database } = context;
+  
+  const { subject, credentialId } = args;
+  const creds = await database.get(
+    'SELECT id FROM user_s3_credentials WHERE id = ? AND user_subject = ? AND revoked_at IS NULL',
+    [credentialId, subject],
+  );
+  
+  if (!creds) return notFound(res);
+  
+  const now = Date.now();
+  await database.run(
+    "UPDATE user_s3_credentials SET revoked_at = ?, updated_at = ?, secret_key = '', encrypted_secret = NULL, encryption_iv = NULL, encryption_tag = NULL WHERE id = ?",
+    [now, now, credentialId]
+  );
+  
+  await audit(req, 's3_credential.admin_revoke', credentialId);
+  res.writeHead(204).end();
+}
+
 async function onAdminStats(req, res) {
   const context = await getAdminContext(req, res);
   if (!context) return;
   const { database } = context;
-  await importDiskCatalog();
   const bins = await database.all(
     `SELECT b.id, b.name, b.visibility, COALESCE(SUM(f.size), 0) AS size,
             COALESCE(q.extra_bytes, 0) AS extra_bytes
@@ -843,50 +1290,30 @@ async function onAdminQuota(req, res, args) {
 async function reconcileStorageCatalog() {
   const database = await getDatabase();
   if (!database) return null;
-  await importDiskCatalog();
-
-  let removedBins = 0;
-  let removedFiles = 0;
-  let removedUploads = 0;
-  let removedQuotaOverrides = 0;
-  const bins = await database.all('SELECT id FROM storage_bins');
-
+  const bins = await database.all('SELECT id, owner_issuer, owner_subject FROM storage_bins');
+  let missingBuckets = 0;
+  let objectsWithoutMetadata = 0;
+  let metadataWithoutObjects = 0;
   for (const bin of bins) {
-    if (!existsSync(join(rootDir, bin.id))) {
-      await database.run('DELETE FROM storage_uploads WHERE bin_id = ?', [bin.id]);
-      await database.run('DELETE FROM storage_files WHERE bin_id = ?', [bin.id]);
-      await database.run('DELETE FROM storage_bin_quota_overrides WHERE bin_id = ?', [bin.id]);
-      await database.run('DELETE FROM storage_bins WHERE id = ?', [bin.id]);
-      removedBins += 1;
+    if (!bin.owner_issuer || !bin.owner_subject) {
+      missingBuckets++;
       continue;
     }
-
-    const files = await database.all('SELECT id FROM storage_files WHERE bin_id = ?', [bin.id]);
-    for (const file of files) {
-      if (!existsSync(join(rootDir, bin.id, file.id))) {
-        await database.run('DELETE FROM storage_files WHERE bin_id = ? AND id = ?', [bin.id, file.id]);
-        removedFiles += 1;
-      }
+    const storage = await getStorageBackend({ issuer: bin.owner_issuer, subject: bin.owner_subject });
+    if (!(await storage.bucketExists(bin.id))) {
+      missingBuckets++;
+      continue;
     }
-
-    const uploads = await database.all('SELECT file_id FROM storage_uploads WHERE bin_id = ?', [bin.id]);
-    for (const upload of uploads) {
-      if (!existsSync(getUploadStatePath(bin.id, upload.file_id))) {
-        await database.run('DELETE FROM storage_uploads WHERE bin_id = ? AND file_id = ?', [bin.id, upload.file_id]);
-        removedUploads += 1;
-      }
-    }
+    const [objects, files] = await Promise.all([
+      storage.listObjects(bin.id),
+      database.all('SELECT id FROM storage_files WHERE bin_id = ?', [bin.id]),
+    ]);
+    const metadataIds = new Set(files.map((file) => file.id));
+    const objectIds = new Set(objects);
+    objectsWithoutMetadata += objects.filter((id) => !metadataIds.has(id)).length;
+    metadataWithoutObjects += files.filter((file) => !objectIds.has(file.id)).length;
   }
-
-  const overrides = await database.all('SELECT bin_id FROM storage_bin_quota_overrides');
-  for (const override of overrides) {
-    if (!existsSync(join(rootDir, override.bin_id))) {
-      await database.run('DELETE FROM storage_bin_quota_overrides WHERE bin_id = ?', [override.bin_id]);
-      removedQuotaOverrides += 1;
-    }
-  }
-
-  return { removedBins, removedFiles, removedUploads, removedQuotaOverrides };
+  return { missingBuckets, objectsWithoutMetadata, metadataWithoutObjects };
 }
 
 async function onAdminReconcile(req, res) {
@@ -985,157 +1412,144 @@ async function onAuthLogout(req, res) {
 
 async function onWriteMetadata(req, res, args) {
   const { binId = '', fileId = '' } = args;
-  const filePath = join(...[rootDir, binId, fileId].filter(Boolean));
-  const metaPath = filePath + '.meta';
 
-  if (!(binId && existsSync(filePath))) {
-    return notFound(res);
+  if (!fileId) {
+    const database = await getDatabase();
+    const payload = await readJson(req);
+    if (typeof payload.name !== 'string' || !payload.name.trim() || payload.name.trim().length > 80) {
+      return badRequest(res, 'A bin name of 1-80 characters is required');
+    }
+    if (!database || !(await getStorageBin(binId))) return notFound(res);
+    await database.run('UPDATE storage_bins SET name = ? WHERE id = ?', [payload.name.trim(), binId]);
+    return res.writeHead(202, jsonHeaders).end(JSON.stringify({ binId, name: payload.name.trim() }));
   }
 
+  const principal = await getPrincipal(req);
+  const storage = await getStorageBackend(principal);
+  const record = await readMetadataRecord(binId, fileId, storage);
+  if (!record) return notFound(res);
+  if (record.system.immutable) return res.writeHead(409).end('File metadata is immutable');
+
   tryCatch(res, async () => {
-    const payload = await readStream(req);
-    const meta = payload.toString('utf-8').trim();
-
-    if (meta) {
-      await writeFile(metaPath, JSON.stringify(JSON.parse(meta)));
-      const url = String(new URL('/' + ['f', binId, fileId].filter(Boolean).join('/'), getProxyHost(req)));
-      res.writeHead(202).end(JSON.stringify({ url }));
-      return;
-    }
-
-    badRequest(res);
+    const payload = await readJson(req);
+    if (!payload || Array.isArray(payload) || typeof payload !== 'object') return badRequest(res, 'Metadata must be a JSON object');
+    for (const protectedKey of ['id', 'bin', 'size', 'url', 'sha256', 'etag', 'immutable']) delete payload[protectedKey];
+    const database = await getDatabase();
+    await database.run(
+      'UPDATE storage_files SET metadata = ?, updated_at = ? WHERE bin_id = ? AND id = ?',
+      [JSON.stringify({ ...record.user, ...payload }), Date.now(), binId, fileId],
+    );
+    const url = String(new URL(`/f/${binId}/${fileId}`, getProxyHost(req)));
+    res.writeHead(202, jsonHeaders).end(JSON.stringify({ url }));
   });
 }
 
 async function onCreateFile(req, res, args) {
   const { binId = '' } = args;
-  const binPath = join(rootDir, binId);
 
-  if (!(binId && existsSync(binPath))) {
-    return notFound(res);
-  }
+  const principal = await getPrincipal(req);
+  const storage = await getStorageBackend(principal);
 
   tryCatch(res, async () => {
-    const payload = await readStream(req);
+    const database = await getDatabase();
+    if (!database || !(await getStorageBin(binId))) return notFound(res);
+    const payload = await readJson(req);
+    if (!payload || Array.isArray(payload) || typeof payload !== 'object') return badRequest(res, 'Metadata must be a JSON object');
+    const hasEnvelope = payload.metadata && typeof payload.metadata === 'object' && !Array.isArray(payload.metadata);
+    const metadata = hasEnvelope ? { ...payload.metadata } : { ...payload };
     const fileId = randomUUID();
-    const meta = payload.toString('utf-8');
-    const metadata = meta ? JSON.parse(meta) : {};
-    const immutable = metadata?.immutable === true;
+    const immutable = metadata.immutable === true;
+    const partSize = Number(payload.partSize || metadata.partSize || 8 * 1024 * 1024);
+    delete metadata.immutable;
+    delete metadata.partSize;
+    if (!Number.isSafeInteger(partSize) || partSize < 5 * 1024 * 1024) return badRequest(res, 'partSize must be at least 5 MiB');
 
-    if (meta) {
-      const userMetadata = { ...metadata };
-      delete userMetadata.immutable;
-      await writeFile(join(binPath, fileId + '.meta'), JSON.stringify(userMetadata));
-    }
-
-    await writeFile(getUploadDataPath(binId, fileId), '');
-    await writeUploadState(binId, fileId, { total: null, ranges: [], pending: [], parts: [], immutable });
+    const uploadId = await storage.createMultipartUpload(binId, fileId);
+    await writeUploadState(binId, fileId, {
+      total: null,
+      ranges: [],
+      pending: [],
+      parts: [],
+      metadata,
+      immutable,
+      partSize,
+      uploadId,
+    });
 
     res.setHeader('location', String(new URL(`/f/${binId}/${fileId}`, getProxyHost(req))));
-    res.writeHead(201).end(`{"fileId": "${fileId}"}`);
+    res.writeHead(201, jsonHeaders).end(JSON.stringify({ fileId, uploadId }));
   });
 }
 
 async function onWriteFile(req, res, args) {
   const { binId = '', fileId = '' } = args;
-  const filePath = join(rootDir, binId, fileId);
-  const uploadPath = getUploadDataPath(binId, fileId);
-  const statePath = getUploadStatePath(binId, fileId);
-  const system = await readSystemMetadata(binId, fileId);
 
-  if (!(binId && fileId && (existsSync(filePath) || existsSync(statePath)))) {
+  const principal = await getPrincipal(req);
+  const storage = await getStorageBackend(principal);
+
+  const database = await getDatabase();
+  const fileRecord = database && (await database.get('SELECT metadata, system_metadata, size FROM storage_files WHERE bin_id = ? AND id = ?', [binId, fileId]));
+  const uploadState = await getUploadState(binId, fileId);
+
+  if (!fileRecord && !uploadState) {
     return notFound(res);
   }
-  if (system.immutable) return res.writeHead(409).end('File is immutable');
+  const existingSystem = fileRecord ? JSON.parse(fileRecord.system_metadata || '{}') : {};
+  if (existingSystem.immutable) return res.writeHead(409).end('File is immutable');
 
   const contentRange = parseContentRange(req.headers['content-range']);
   if (req.headers['content-range'] && !contentRange) return badRequest(res, 'Invalid Content-Range header');
 
   if (!contentRange) {
-    const temporaryPath = `${uploadPath}.replace-${randomUUID()}`;
-    const writer = createWriteStream(temporaryPath);
-    req.pipe(writer);
-    writer.on('error', () => {
-      rm(temporaryPath, { force: true }).catch(() => {});
-      if (!res.headersSent) res.writeHead(500).end('Failed to write file');
-    });
-    writer.on('close', async () => {
-      try {
-        const sha256 = await sha256File(temporaryPath);
-        const fileSize = (await stat(temporaryPath)).size;
-        await withBinStorageLock(binId, async () => {
-          const usage = await getBinStorageUsage(binId, fileId);
-          const quota = await getBinQuota(binId);
-          if (quota && usage.used + usage.reserved + fileSize > quota) {
-            await rm(temporaryPath, { force: true });
-            throw new Error('Bin storage quota exceeded');
-          }
-          await rename(temporaryPath, filePath);
-          await Promise.all([rm(uploadPath, { force: true }), rm(statePath, { force: true })]);
-          await writeSystemMetadata(binId, fileId, { sha256, committedAt: new Date().toISOString() });
-          await recordCompletedFile(binId, fileId);
-        });
-        sendFileReference(req, res, binId, fileId);
-      } catch (error) {
-        if (!res.headersSent) {
-          res
-            .writeHead(error instanceof Error && error.message === 'Bin storage quota exceeded' ? 413 : 500)
-            .end(
-              error instanceof Error && error.message === 'Bin storage quota exceeded'
-                ? 'Bin storage quota exceeded'
-                : 'Failed to write file',
-            );
+    const payload = await readStream(req);
+    const sha256 = createHash('sha256').update(payload).digest('hex');
+    const fileSize = payload.length;
+
+    try {
+      await withBinStorageLock(binId, async () => {
+        const usage = await getBinStorageUsage(binId, fileId, principal);
+        const quota = await getBinQuota(binId);
+        if (quota && usage.used + usage.reserved + fileSize > quota) {
+          throw new Error('Bin storage quota exceeded');
         }
+        if (uploadState?.uploadId) await storage.abortMultipartUpload(binId, fileId, uploadState.uploadId).catch(() => {});
+        await storage.writeObject(binId, fileId, payload, { sha256 });
+      await recordCompletedFile(binId, fileId, payload.length, sha256, uploadState?.metadata || (fileRecord ? JSON.parse(fileRecord.metadata || '{}') : {}), Boolean(uploadState?.immutable || existingSystem.immutable));
+      });
+      await deleteUploadState(binId, fileId);
+      sendFileReference(req, res, binId, fileId);
+    } catch (error) {
+      if (!res.headersSent) {
+        res
+          .writeHead(error instanceof Error && error.message === 'Bin storage quota exceeded' ? 413 : 500)
+          .end(
+            error instanceof Error && error.message === 'Bin storage quota exceeded'
+              ? 'Bin storage quota exceeded'
+              : 'Failed to write file',
+          );
       }
-    });
+    }
     return;
   }
 
   const digest = String(req.headers.digest || '');
   if (!/^sha-256=[A-Za-z0-9+/]+={0,2}$/.test(digest)) return badRequest(res, 'A SHA-256 Digest header is required');
   const range: ByteRange = { start: contentRange.start, end: contentRange.end };
-  let state: UploadState | null = null;
-  let duplicate = false;
-  let quotaExceeded = false;
-  await withUploadLock(statePath, async () => {
-    await withBinStorageLock(binId, async () => {
-      await recoverCompletedUpload(binId, fileId);
-      state = await readUploadState(binId, fileId);
-      if (!state || (state.total !== null && state.total !== contentRange.total)) {
-        state = null;
-        return;
-      }
-      duplicate = state.parts.some(
-        (part) => part.start === range.start && part.end === range.end && part.digest === digest,
-      );
-      if (rangesOverlap([...state.ranges, ...state.pending], range) && !duplicate) {
-        state = null;
-        return;
-      }
-      if (duplicate) return;
-      if (state.total === null) {
-        const usage = await getBinStorageUsage(binId, fileId);
-        const quota = await getBinQuota(binId);
-        if (quota && usage.used + usage.reserved + contentRange.total > quota) {
-          quotaExceeded = true;
-          state = null;
-          return;
-        }
-        state.total = contentRange.total;
-      }
-      state.pending.push(range);
-      await writeUploadState(binId, fileId, state);
-    });
-  });
-  if (!state) {
-    if (existsSync(filePath)) {
+
+  if (!uploadState || !uploadState.uploadId || (uploadState.total !== null && uploadState.total !== contentRange.total)) {
+    if (fileRecord) {
       req.resume();
       req.on('end', () => sendFileReference(req, res, binId, fileId));
       return;
     }
-    return res
-      .writeHead(quotaExceeded ? 413 : 409)
-      .end(quotaExceeded ? 'Bin storage quota exceeded' : 'Conflicting upload range or total size');
+    return res.writeHead(409).end('Conflicting upload range or total size');
+  }
+
+  const duplicate = uploadState.parts.some(
+    (part) => part.start === range.start && part.end === range.end && part.digest === digest,
+  );
+  if (rangesOverlap([...uploadState.ranges, ...uploadState.pending], range) && !duplicate) {
+    return res.writeHead(409).end('Conflicting upload range or total size');
   }
   if (duplicate) {
     req.resume();
@@ -1143,65 +1557,71 @@ async function onWriteFile(req, res, args) {
     return;
   }
 
+  if (contentRange.start % uploadState.partSize !== 0 || contentRange.end !== Math.min(contentRange.start + uploadState.partSize, contentRange.total) - 1) {
+    return badRequest(res, 'Upload ranges must match the configured part size');
+  }
+  const partNumber = Math.floor(contentRange.start / uploadState.partSize) + 1;
+  if (partNumber > 10000) return badRequest(res, 'S3 multipart uploads are limited to 10,000 parts');
+
+  if (uploadState.total === null) {
+    const usage = await storage.getBucketUsage(binId);
+    const quota = await getBinQuota(binId);
+    if (quota && usage.used + usage.reserved + contentRange.total > quota) {
+      return res.writeHead(413).end('Bin storage quota exceeded');
+    }
+    uploadState.total = contentRange.total;
+  }
+
+  uploadState.pending.push(range);
+  await writeUploadState(binId, fileId, uploadState);
+
   const hash = createHash('sha256');
   let written = 0;
-  const writer = createWriteStream(uploadPath, { flags: 'r+', start: range.start });
-  req.on('data', (chunk) => {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of req) {
     written += chunk.length;
     hash.update(chunk);
-  });
-  req.pipe(writer);
+    chunks.push(chunk);
+  }
 
-  const discardRange = async () =>
-    withUploadLock(statePath, async () => {
-      const current = await readUploadState(binId, fileId);
-      if (!current) return;
-      current.pending = current.pending.filter((item) => item.start !== range.start || item.end !== range.end);
-      await writeUploadState(binId, fileId, current);
-    });
+  if (written !== range.end - range.start + 1 || `sha-256=${hash.digest('base64')}` !== digest) {
+    uploadState.pending = uploadState.pending.filter((item) => item.start !== range.start || item.end !== range.end);
+    await writeUploadState(binId, fileId, uploadState);
+    return badRequest(res, 'Upload part does not match its range or digest');
+  }
 
-  writer.on('error', async () => {
-    await discardRange();
-    if (!res.headersSent) res.writeHead(500).end('Failed to write upload part');
-  });
-  writer.on('close', async () => {
-    if (written !== range.end - range.start + 1 || `sha-256=${hash.digest('base64')}` !== digest) {
-      await discardRange();
-      return badRequest(res, 'Upload part does not match its range or digest');
-    }
-
-    try {
-      let complete = false;
-      await withUploadLock(statePath, async () => {
-        await withBinStorageLock(binId, async () => {
-          const current = await readUploadState(binId, fileId);
-          if (!current) throw new Error('Upload session disappeared');
-          current.pending = current.pending.filter((item) => item.start !== range.start || item.end !== range.end);
-          current.ranges = mergeRanges([...current.ranges, range]);
-          current.parts.push({ ...range, digest });
-          complete = isUploadComplete(current);
-          if (complete) {
-            const sha256 = await sha256File(uploadPath);
-            await rename(uploadPath, filePath);
-            await rm(statePath, { force: true });
-            await writeSystemMetadata(binId, fileId, {
-              sha256,
-              committedAt: new Date().toISOString(),
-              ...(current.immutable ? { immutable: true } : {}),
-            });
-            await recordCompletedFile(binId, fileId);
-          } else {
-            await writeUploadState(binId, fileId, current);
-          }
-        });
+  try {
+    const partData = Buffer.concat(chunks);
+    const uploadedPart = await storage.uploadPart(binId, fileId, uploadState.uploadId, partNumber, partData);
+    let complete = false;
+    await withUploadLock(getUploadStatePath(binId, fileId), async () => {
+      await withBinStorageLock(binId, async () => {
+        const current = await readUploadState(binId, fileId);
+        if (!current) throw new Error('Upload session disappeared');
+        current.pending = current.pending.filter((item) => item.start !== range.start || item.end !== range.end);
+        current.ranges = mergeRanges([...current.ranges, range]);
+        current.parts.push({ ...range, digest, partNumber, etag: uploadedPart.etag });
+        complete = isUploadComplete(current);
+        if (complete) {
+          const completed = await storage.completeMultipartUpload(
+            binId,
+            fileId,
+            uploadState.uploadId,
+            current.parts.sort((a, b) => a.partNumber - b.partNumber).map((part) => ({ partNumber: part.partNumber, etag: part.etag! })),
+          );
+          await recordCompletedFile(binId, fileId, completed.size, completed.sha256, current.metadata, Boolean(current.immutable));
+          await deleteUploadState(binId, fileId);
+        } else {
+          await writeUploadState(binId, fileId, current);
+        }
       });
-      if (complete) {
-        sendFileReference(req, res, binId, fileId);
-      } else res.writeHead(202, jsonHeaders).end(JSON.stringify({ complete: false }));
-    } catch {
-      if (!res.headersSent) res.writeHead(500).end('Failed to finalize upload');
-    }
-  });
+    });
+    if (complete) {
+      sendFileReference(req, res, binId, fileId);
+    } else res.writeHead(202, jsonHeaders).end(JSON.stringify({ complete: false }));
+  } catch {
+    if (!res.headersSent) res.writeHead(500).end('Failed to finalize upload');
+  }
 }
 
 function sendFileReference(req, res, binId: string, fileId: string) {
@@ -1214,164 +1634,97 @@ function sendFileReference(req, res, binId: string, fileId: string) {
   );
 }
 
-async function readBin(binId: string) {
-  const binPath = join(rootDir, binId);
-
-  if (!(binId && existsSync(binPath))) {
-    return null;
-  }
-
-  const allFiles = await readdir(binPath);
-  return allFiles.filter((f) => !f.endsWith('.meta') && !f.endsWith('.system') && !f.startsWith('.upload-'));
+async function readBin(binId: string, principal?: { issuer: string; subject: string } | null) {
+  const storage = await getStorageBackend(principal);
+  if (!(await storage.bucketExists(binId))) return null;
+  return storage.listObjects(binId);
 }
 
 async function onReadBin(_req, res, args) {
   const { binId = '' } = args;
+  const principal = await getPrincipal(_req);
 
   tryCatch(res, async () => {
-    const files = await readBin(binId);
-
-    if (files === null) {
-      return notFound(res);
-    }
-
+    const objectIds = await readBin(binId, principal);
+    const database = await getDatabase();
+    const records = database && (await database.all('SELECT id FROM storage_files WHERE bin_id = ?', [binId]));
+    const catalogIds = new Set((records || []).map((record) => record.id));
+    const files = objectIds.filter((id) => catalogIds.has(id));
     res.writeHead(200, jsonHeaders).end(JSON.stringify(files));
   });
 }
 
 async function onCreateBin(req, res) {
   tryCatch(res, async () => {
+    const principal = await getPrincipal(req);
+    if (!principal) return unauthenticated(res);
+    const database = await getDatabase();
+    if (!database) return res.writeHead(503).end('Database unavailable');
     const binId = randomUUID();
     const name = generateBinName();
-    await ensureDir(join(rootDir, binId));
-    const principal = await getPrincipal(req);
-    const database = await getDatabase();
-    if (database) {
-      const now = Date.now();
-      await database.run(
-        'INSERT INTO storage_bins (id, name, visibility, owner_issuer, owner_subject, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [binId, name, principal ? 'private' : 'public', principal?.issuer || null, principal?.subject || null, now],
-      );
+    const storage = await getStorageBackend(principal);
+    const now = Date.now();
+    await database.run(
+      'INSERT INTO storage_bins (id, name, visibility, owner_issuer, owner_subject, bucket_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [binId, name, 'private', principal.issuer, principal.subject, binId, now],
+    );
+    try {
+      await storage.createBucket(binId);
+    } catch (error) {
+      await database.run('DELETE FROM storage_bins WHERE id = ?', [binId]).catch(() => {});
+      throw error;
     }
-    if (principal && database) {
-      await audit(req, 'bin.create', binId);
-    }
+    await audit(req, 'bin.create', binId);
     res.setHeader('location', String(new URL('/bin/' + binId, getProxyHost(req))));
     res.writeHead(201).end(JSON.stringify({ binId, name }));
   });
 }
 
-function onRenameBin(req, res, args) {
-  tryCatch(res, async () => {
-    let { binId, newId } = args;
-    const matcher = /^[a-z0-9-]+$/i;
-    if (!binId || !newId || !matcher.test(newId)) {
-      badRequest(res);
-      return;
-    }
-
-    const oldPath = join(rootDir, binId);
-    const newPath = join(rootDir, newId);
-    const oldMetaPath = oldPath + '.meta';
-
-    if (!existsSync(oldPath) || existsSync(newPath)) {
-      badRequest(res);
-      return;
-    }
-
-    await rename(oldPath, newPath);
-
-    if (existsSync(oldMetaPath)) {
-      await rename(oldMetaPath, newPath + '.meta');
-    }
-
-    const database = await getDatabase();
-    if (database) {
-      await database.run('UPDATE storage_bin_quota_overrides SET bin_id = ? WHERE bin_id = ?', [newId, binId]);
-    }
-
-    if (await isBinLocked(newId)) {
-      setUnlockCookie(req, res, newId);
-    }
-    res.setHeader('location', String(new URL('/bin/' + newId, getProxyHost(req))));
-    res.writeHead(202).end(JSON.stringify({ binId: newId }));
-  });
-}
-
 async function onRenameBinPatch(req, res, args) {
-  const { newId = '', name, visibility } = await readJson(req);
-  if (newId) return onRenameBin(req, res, { ...args, newId });
-  if (typeof name === 'string') {
-    const value = name.trim();
-    if (!value || value.length > 80) return badRequest(res);
-    const database = await getDatabase();
-    if (!database || !(await getStorageBin(args.binId))) return res.writeHead(404).end('Not found');
-    await database.run('UPDATE storage_bins SET name = ? WHERE id = ?', [value, args.binId]);
-    await audit(req, 'bin.name.updated', args.binId);
-    return res.writeHead(204).end();
-  }
-  if (!['public', 'private'].includes(visibility)) return badRequest(res);
-
-  const bin = await getStorageBin(args.binId);
-  const principal = await getPrincipal(req);
-  if (!bin || !principal || bin.owner_issuer !== principal.issuer || bin.owner_subject !== principal.subject) {
-    return unauthenticated(res);
-  }
-
+  const { name } = await readJson(req);
+  const value = typeof name === 'string' ? name.trim() : '';
+  if (!value || value.length > 80) return badRequest(res, 'Bin name must be 1-80 characters');
   const database = await getDatabase();
-  if (!database) return res.writeHead(503).end('Database unavailable');
-  await database.run('UPDATE storage_bins SET visibility = ? WHERE id = ?', [visibility, args.binId]);
-  await audit(req, `bin.visibility.${visibility}`, args.binId);
+  if (!database || !(await getStorageBin(args.binId))) return notFound(res);
+  await database.run('UPDATE storage_bins SET name = ? WHERE id = ?', [value, args.binId]);
+  await audit(req, 'bin.name.updated', args.binId);
   res.writeHead(204).end();
 }
 
 async function onDeleteFile(_req, res, args) {
   const { binId = '', fileId = '' } = args;
-  const filePath = join(rootDir, binId, fileId);
-  const metaPath = join(rootDir, binId, fileId + '.meta');
 
-  const uploadPath = getUploadDataPath(binId, fileId);
-  const uploadStatePath = getUploadStatePath(binId, fileId);
-  const system = await readSystemMetadata(binId, fileId);
-  if (!(binId && fileId && (existsSync(filePath) || existsSync(uploadStatePath)))) {
+  const principal = await getPrincipal(_req);
+  const storage = await getStorageBackend(principal);
+  const database = await getDatabase();
+  const row = database && (await database.get('SELECT system_metadata FROM storage_files WHERE bin_id = ? AND id = ?', [binId, fileId]));
+  const uploadState = await getUploadState(binId, fileId);
+
+  if (!row && !uploadState) {
     return notFound(res);
   }
+  const system = row ? JSON.parse(row.system_metadata || '{}') : {};
   if (system.immutable) return res.writeHead(409).end('File is immutable');
 
   tryCatch(res, async () => {
-    await rm(filePath, { force: true });
-
-    if (existsSync(metaPath)) {
-      await unlink(metaPath);
-    }
-    await Promise.all([rm(uploadPath, { force: true }), rm(uploadStatePath, { force: true })]);
-    await rm(getSystemMetadataPath(binId, fileId), { force: true });
-
-    const database = await getDatabase();
-    if (database) {
-      await database.run('DELETE FROM storage_files WHERE bin_id = ? AND id = ?', [binId, fileId]);
-      await database.run('DELETE FROM storage_uploads WHERE bin_id = ? AND file_id = ?', [binId, fileId]);
-    }
-
+    if (uploadState?.uploadId) await storage.abortMultipartUpload(binId, fileId, uploadState.uploadId).catch(() => {});
+    if (row) await storage.deleteObject(binId, fileId);
+    await database.run('DELETE FROM storage_files WHERE bin_id = ? AND id = ?', [binId, fileId]);
+    await deleteUploadState(binId, fileId);
     res.end('OK');
   });
 }
 
 async function onDeleteBin(_req, res, args) {
   const { binId = '' } = args;
-  const binPath = join(rootDir, binId);
 
-  if (!(binId && existsSync(binPath))) {
-    return notFound(res);
-  }
+  const principal = await getPrincipal(_req);
+  const storage = await getStorageBackend(principal);
+  const bin = await getStorageBin(binId);
+  if (!bin) return notFound(res);
 
   tryCatch(res, async () => {
-    if (!(await getDatabase())) {
-      await rm(binPath, { recursive: true });
-      return res.end('OK');
-    }
-    await importDiskCatalog();
-    if (!(await getStorageBin(binId))) return res.writeHead(404).end('Not found');
+    if (!(await storage.bucketExists(binId))) return notFound(res);
     if (!(await markBinForDeletion(_req, binId))) return res.writeHead(503).end('Database unavailable');
     res.writeHead(202, jsonHeaders).end(JSON.stringify({ binId, deletionGraceHours: binDeletionGraceMs / 3600000 }));
   });
@@ -1393,7 +1746,7 @@ async function onRestoreBin(req, res, args) {
 }
 
 async function onApiSpec(req, res) {
-  const isJson = new URL(req.url, 'http://localhost').pathname.endsWith('.json');
+  const isJson = new URL(req.url, 'http://localhost').pathname.endsWith('.json') || !new URL(req.url, 'http://localhost').pathname.endsWith('.yaml');
   const host = getProxyHost(req);
   let spec = (await readFile('./api.yaml', 'utf-8')).replace('__API_HOST__', host);
 
@@ -1443,17 +1796,25 @@ function onGetUI(req, res, args) {
 
     if (requestedBinId) {
       const baseUrl = getProxyHost(req);
-      const fileIds = await readBin(requestedBinId);
-
-      if (fileIds === null) {
-        return notFoundPage(res);
-      }
-
+      const principal = await getPrincipal(req);
       const locked = await isBinLocked(requestedBinId);
       const unlocked = !locked || (await isBinAuthorized(req, requestedBinId));
-      const files = unlocked ? await Promise.all(fileIds.map((x) => readMetadata(requestedBinId, x, baseUrl))) : [];
       const bin = await getStorageBin(requestedBinId);
-      const storage = await getBinStorage(requestedBinId);
+      const database = await getDatabase();
+      const credential = principal && database && await database.get(
+        'SELECT id FROM user_s3_credentials WHERE user_issuer = ? AND user_subject = ? AND revoked_at IS NULL LIMIT 1',
+        [principal.issuer, principal.subject],
+      );
+      const s3Connected = Boolean(credential);
+      let files: any[] = [];
+      let storage = { used: 0, quota: await getBinQuota(requestedBinId) };
+      if (s3Connected && unlocked) {
+        const fileIds = await readBin(requestedBinId, principal);
+        if (fileIds === null) return notFoundPage(res);
+        files = await Promise.all(fileIds.map((id) => readMetadata(requestedBinId, id, baseUrl, principal)));
+        files = files.filter(Boolean);
+        storage = await getBinStorage(requestedBinId, principal);
+      }
 
       state = {
         ...state,
@@ -1462,6 +1823,7 @@ function onGetUI(req, res, args) {
         filesLoaded: true,
         locked,
         unlocked,
+        s3Connected,
         binStorage: storage,
         binDeletionRequestedAt: bin?.deletion_requested_at || null,
         binDeletionExpiresAt: bin?.deletion_expires_at || null,
@@ -1487,14 +1849,14 @@ function onGetIcon(_req, res) {
 async function onUploadZip(req, res, args) {
   let { binId = '' } = args;
   binId = binId.replace(/\.zip$/, '');
-  const binPath = join(rootDir, binId);
 
-  if (!(binId && existsSync(binPath))) {
-    return notFound(res);
-  }
+  const principal = await getPrincipal(req);
+  const storage = await getStorageBackend(principal);
+
+  if (!(await getStorageBin(binId))) return notFound(res);
 
   const uid = randomUUID();
-  const tmpFile = join(binPath, uid);
+  const tmpFile = join(tmpdir(), `filebin-${uid}.zip`);
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -1505,13 +1867,12 @@ async function onUploadZip(req, res, args) {
     });
     const zipSize = await getZipUncompressedSize(tmpFile);
     await withBinStorageLock(binId, async () => {
-      const usage = await getBinStorageUsage(binId);
+      const usage = await getBinStorageUsage(binId, undefined, principal);
       const quota = await getBinQuota(binId);
       if (quota && usage.used + usage.reserved + zipSize > quota) {
         throw new Error('Bin storage quota exceeded');
       }
-      await extractZipFile(tmpFile, binPath);
-      await importDiskCatalog();
+      await extractZipFileToStorage(tmpFile, binId, storage);
     });
 
     res.writeHead(202).end(`{"binId": "${binId}"}`);
@@ -1546,12 +1907,12 @@ function getZipUncompressedSize(path: string): Promise<number> {
   });
 }
 
-function extractZipFile(path: string, binPath: string): Promise<void> {
+async function extractZipFileToStorage(path: string, binId: string, storage: StorageBackend): Promise<void> {
   return new Promise((resolve, reject) => {
     yauzl.open(path, { strictFileNames: true, lazyEntries: true, decodeStrings: true }, (error, zip) => {
       if (error) return reject(error);
       zip.on('error', reject);
-      const writes = [];
+      const writes: Promise<void>[] = [];
       zip.once('end', async () => {
         try {
           await Promise.all(writes);
@@ -1569,16 +1930,21 @@ function extractZipFile(path: string, binPath: string): Promise<void> {
         zip.openReadStream(entry, async (streamError, readStream) => {
           if (streamError) return reject(streamError);
           const fileId = randomUUID();
-          const stream = createWriteStream(join(binPath, fileId));
-          await writeFile(join(binPath, fileId + '.meta'), JSON.stringify({ name: entry.fileName }));
-          writes.push(
-            new Promise((writeResolve, writeReject) => {
-              stream.on('finish', () => writeResolve(null));
-              stream.on('error', writeReject);
-            }),
-          );
-          readStream.on('end', () => zip.readEntry());
-          readStream.pipe(stream);
+          const chunks: Buffer[] = [];
+          readStream.on('data', (chunk: Buffer) => chunks.push(chunk));
+          readStream.on('end', async () => {
+            try {
+              const data = Buffer.concat(chunks);
+              writes.push((async () => {
+                const { sha256, size } = await storage.writeObject(binId, fileId, data, {});
+                await recordCompletedFile(binId, fileId, size, sha256, { name: entry.fileName, type: 'application/octet-stream' });
+              })());
+              zip.readEntry();
+            } catch (e) {
+              reject(e);
+            }
+          });
+          readStream.on('error', reject);
         });
       });
       zip.readEntry();
@@ -1588,10 +1954,7 @@ function extractZipFile(path: string, binPath: string): Promise<void> {
 
 async function onLockStatus(req, res, args) {
   const { binId = '' } = args;
-
-  if (!(binId && existsSync(join(rootDir, binId)))) {
-    return notFound(res);
-  }
+  if (!(await getStorageBin(binId))) return notFound(res);
 
   const locked = await isBinLocked(binId);
   const unlocked = !locked || (await isBinAuthorized(req, binId));
@@ -1600,10 +1963,7 @@ async function onLockStatus(req, res, args) {
 
 async function onUnlockBin(req, res, args) {
   const { binId = '' } = args;
-
-  if (!(binId && existsSync(join(rootDir, binId)))) {
-    return notFound(res);
-  }
+  if (!(await getStorageBin(binId))) return notFound(res);
 
   const { password = '' } = await readJson(req);
 
@@ -1617,10 +1977,8 @@ async function onUnlockBin(req, res, args) {
 
 async function onSetBinPassword(req, res, args) {
   const { binId = '' } = args;
-
-  if (!(binId && existsSync(join(rootDir, binId)))) {
-    return notFound(res);
-  }
+  const database = await getDatabase();
+  if (!database || !(await getStorageBin(binId))) return notFound(res);
 
   const { password = '' } = await readJson(req);
 
@@ -1630,16 +1988,16 @@ async function onSetBinPassword(req, res, args) {
 
   const salt = randomBytes(16).toString('base64url');
   const hash = Buffer.from((await scrypt(password, salt, 32)) as Buffer).toString('base64url');
-  await writeFile(getLockPath(binId), JSON.stringify({ lock: { salt, hash } }));
+  await database.run('UPDATE storage_bins SET lock_salt = ?, lock_hash = ? WHERE id = ?', [salt, hash, binId]);
   setUnlockCookie(req, res, binId);
   res.writeHead(204).end();
 }
 
 async function onRemoveBinPassword(req, res, args) {
   const { binId = '' } = args;
-  await unlink(getLockPath(binId)).catch((error) => {
-    if (error.code !== 'ENOENT') throw error;
-  });
+  const database = await getDatabase();
+  if (!database || !(await getStorageBin(binId))) return notFound(res);
+  await database.run('UPDATE storage_bins SET lock_salt = NULL, lock_hash = NULL WHERE id = ?', [binId]);
   clearUnlockCookie(req, res, binId);
   res.writeHead(204).end();
 }
@@ -1647,28 +2005,46 @@ async function onRemoveBinPassword(req, res, args) {
 async function onDownloadZip(_req, res, args) {
   let { binId = '' } = args;
   binId = binId.replace('.zip', '');
-  const binPath = join(rootDir, binId);
 
-  if (!(binId && existsSync(binPath))) {
-    return notFound(res);
-  }
+  const principal = await getPrincipal(_req);
+  const storage = await getStorageBackend(principal);
+  const database = await getDatabase();
+  if (!database || !(await getStorageBin(binId))) return notFound(res);
 
   tryCatch(res, async () => {
     const zip = new yazl.ZipFile();
-    const allFiles = await readdir(binPath);
-    const files = allFiles.filter((f) => !f.endsWith('.meta') && !f.endsWith('.system') && !f.startsWith('.upload-'));
+    const [objects, catalog] = await Promise.all([
+      storage.listObjects(binId),
+      database.all('SELECT id, metadata FROM storage_files WHERE bin_id = ?', [binId]),
+    ]);
+    const metadataById = new Map<string, any>((catalog as any[]).map((row) => [row.id, JSON.parse(row.metadata || '{}')]));
+    const files = objects.filter((fileId) => metadataById.has(fileId));
 
     res.setHeader('content-type', 'application/x-zip');
     res.setHeader('Content-Disposition', `attachment; filename="archive-${binId.slice(0, 8)}.zip"`);
     zip.outputStream.pipe(res);
 
     for (const fileId of files) {
-      const filePath = join(rootDir, binId, fileId);
-      const metaPath = filePath + '.meta';
-      const meta = await readMetaFile(metaPath);
-      const buffer = await readFile(filePath);
-      const fileName = meta.name || fileId;
-      zip.addBuffer(buffer, fileName);
+      const { data } = await storage.readObject(binId, fileId);
+      const fileName = metadataById.get(fileId)?.name || fileId;
+      
+      if (data && typeof (data as any).pipe === 'function') {
+        // Node.js ReadStream
+        await new Promise<void>((resolve, reject) => {
+          const chunks: Buffer[] = [];
+          (data as any).on('data', (chunk: Buffer) => chunks.push(chunk));
+          (data as any).on('end', () => {
+            zip.addBuffer(Buffer.concat(chunks), fileName);
+            resolve();
+          });
+          (data as any).on('error', reject);
+        });
+      } else if (data && typeof (data as any)[Symbol.asyncIterator] === 'function') {
+        // Web ReadableStream
+        for await (const chunk of data as AsyncIterable<Uint8Array>) {
+          zip.addBuffer(Buffer.from(chunk), fileName);
+        }
+      }
     }
 
     zip.end();
@@ -1742,13 +2118,11 @@ async function readJson(req) {
   return payload ? JSON.parse(payload) : {};
 }
 
-function getLockPath(binId: string) {
-  return join(rootDir, binId, lockFileName);
-}
-
 async function readBinLock(binId: string) {
-  const metadata = await readMetaFile(getLockPath(binId));
-  return metadata.lock || null;
+  const database = await getDatabase();
+  if (!database) return null;
+  const lock = await database.get('SELECT lock_salt, lock_hash FROM storage_bins WHERE id = ?', [binId]);
+  return lock?.lock_salt && lock?.lock_hash ? { salt: lock.lock_salt, hash: lock.lock_hash } : null;
 }
 
 async function isBinLocked(binId: string) {
@@ -1797,9 +2171,8 @@ function hasValidUnlockCookie(req, binId: string) {
 }
 
 async function isBinAuthorized(req, binId: string) {
-  if (!(await isBinLocked(binId)) || hasValidUnlockCookie(req, binId)) {
-    return true;
-  }
+  if (!(await isBinLocked(binId))) return false;
+  if (hasValidUnlockCookie(req, binId)) return true;
 
   const authorization = String(req.headers.authorization || '');
 
@@ -1812,60 +2185,56 @@ async function isBinAuthorized(req, binId: string) {
   return false;
 }
 
-async function cleanupAbandonedUploads() {
-  if (!Number.isFinite(uploadRetentionMs) || uploadRetentionMs <= 0) return;
-  const cutoff = Date.now() - uploadRetentionMs;
-  const bins = await readdir(rootDir, { withFileTypes: true });
-  await Promise.all(
-    bins
-      .filter((entry) => entry.isDirectory())
-      .map(async (entry) => {
-        const binPath = join(rootDir, entry.name);
-        const files = await readdir(binPath);
-        await Promise.all(
-          files
-            .filter((file) => file.startsWith('.upload-') && file.endsWith('.json'))
-            .map(async (file) => {
-              const statePath = join(binPath, file);
-              const stats = await stat(statePath).catch(() => null);
-              if (!stats || stats.mtimeMs >= cutoff) return;
-              const fileId = file.slice('.upload-'.length, -'.json'.length);
-              await withUploadLock(statePath, async () => {
-                const current = await stat(statePath).catch(() => null);
-                if (!current || current.mtimeMs >= cutoff) return;
-                await Promise.all([
-                  rm(statePath, { force: true }),
-                  rm(join(binPath, `.upload-${fileId}`), { force: true }),
-                ]);
-              });
-            }),
-        );
-      }),
+async function canAccessBin(req, binId: string) {
+  const bin = await getStorageBin(binId);
+  if (!bin || bin.deletion_requested_at) return false;
+  const principal = await getPrincipal(req);
+  const owner = Boolean(
+    principal && rtrimIssuer(bin.owner_issuer) === rtrimIssuer(principal.issuer) && bin.owner_subject === principal.subject,
   );
+  const admin = isAdminPrincipal(principal);
+  return owner || admin;
 }
 
-async function cleanupExpiredPublicBins() {
+function rtrimIssuer(value) {
+  return String(value || '').replace(/\/+$/, '');
+}
+
+async function cleanupAbandonedUploads() {
   const database = await getDatabase();
-  if (!database || !Number.isFinite(publicBinRetentionMs) || publicBinRetentionMs <= 0) return [];
-  await importDiskCatalog();
-  const now = Date.now();
-  const cutoff = now - publicBinRetentionMs;
-  const bins = await database.all(
-    `SELECT id FROM storage_bins
-     WHERE (visibility = 'public' AND owner_subject IS NULL AND last_completed_upload_at IS NOT NULL AND last_completed_upload_at < ?)
-        OR (deletion_expires_at IS NOT NULL AND deletion_expires_at < ?)`,
-    [cutoff, now],
+  if (!database || !Number.isFinite(uploadRetentionMs) || uploadRetentionMs <= 0) return;
+  const cutoff = Date.now() - uploadRetentionMs;
+  const expired = await database.all(
+    `SELECT u.bin_id, u.file_id, u.state, b.owner_issuer, b.owner_subject
+     FROM storage_uploads u JOIN storage_bins b ON b.id = u.bin_id WHERE u.updated_at < ?`,
+    [cutoff],
   );
+  for (const row of expired) {
+    await withUploadLock(getUploadStatePath(row.bin_id, row.file_id), async () => {
+      const current = await readUploadState(row.bin_id, row.file_id);
+      if (!current) return;
+      const storage = await getStorageBackend({ issuer: row.owner_issuer, subject: row.owner_subject });
+      if (current.uploadId) await storage.abortMultipartUpload(row.bin_id, row.file_id, current.uploadId);
+      await deleteUploadState(row.bin_id, row.file_id);
+    });
+  }
+}
+
+async function cleanupDeletedBins() {
+  const database = await getDatabase();
+  if (!database) return [];
+  const now = Date.now();
+  const bins = await database.all('SELECT id FROM storage_bins WHERE deletion_expires_at IS NOT NULL AND deletion_expires_at < ?', [now]);
   for (const { id } of bins) {
     await permanentlyDeleteBin(id);
   }
   return bins.map((bin) => bin.id);
 }
 
-async function onPublicBinCleanup(req, res) {
+async function onBinCleanup(req, res) {
   const token = String(req.headers.authorization || '').replace(/^Bearer /, '');
-  if (!publicBinCleanupToken || token !== publicBinCleanupToken) return unauthenticated(res);
-  const deleted = await cleanupExpiredPublicBins();
+  if (!binCleanupToken || token !== binCleanupToken) return unauthenticated(res);
+  const deleted = await cleanupDeletedBins();
   res.writeHead(200, jsonHeaders).end(JSON.stringify({ deleted }));
 }
 
@@ -1887,30 +2256,17 @@ function protectedBinId(req) {
   const parts = url.pathname.split('/').filter(Boolean);
   const [resource, rawBinId] = parts;
 
-  if (!['bin', 'f', 'meta', 'zip', 'lock'].includes(resource) || !rawBinId) {
+  if (['/', '/app', '/help'].includes(url.pathname) && url.searchParams.has('bin')) {
+    return url.searchParams.get('bin');
+  }
+
+  if (!['bin', 'f', 'meta', 'zip', 'lock', 'b'].includes(resource) || !rawBinId) {
     return null;
   }
 
   if (resource === 'bin' && req.method === 'POST') return null;
   if (resource === 'lock' && ['GET', 'POST'].includes(req.method)) return null;
   return resource === 'zip' ? rawBinId.replace(/\.zip$/, '') : rawBinId;
-}
-
-function ensureDir(path) {
-  if (existsSync(path)) return;
-  return mkdir(path, { recursive: true });
-}
-
-async function readMetaFile(metaPath: string) {
-  try {
-    if (existsSync(metaPath)) {
-      return JSON.parse(await readFile(metaPath, 'utf8'));
-    }
-  } catch {
-    // Missing or malformed metadata is treated as empty metadata.
-  }
-
-  return {};
 }
 
 const match = router({
@@ -1920,13 +2276,18 @@ const match = router({
   'GET /admin': onGetUI,
   'GET /auth/profile': onAuthProfile,
   'GET /api/bins': onAuthBins,
+  'GET /auth/s3-credentials': onAuthS3Credentials,
+  'POST /auth/s3-credentials': onAuthCreateS3Credential,
+  'DELETE /auth/s3-credentials/:credentialId': onAuthDeleteS3Credential,
   'GET /admin/stats': onAdminStats,
   'POST /admin/reconcile': onAdminReconcile,
   'PATCH /admin/bins/:binId/quota': onAdminQuota,
+  'GET /admin/users/:subject/s3-credentials': onAdminListUserS3Credentials,
+  'DELETE /admin/users/:subject/s3-credentials/:credentialId': onAdminRevokeUserS3Credential,
   'GET /auth/login': onAuthLogin,
   'GET /auth/callback': onAuthCallback,
   'POST /auth/logout': onAuthLogout,
-  'POST /admin/cleanup': onPublicBinCleanup,
+  'POST /admin/cleanup': onBinCleanup,
   'GET /b/:binId': onGetUI,
   'GET /manifest.webmanifest': onGetManifest,
   'GET /icon.svg': onGetIcon,
@@ -1935,7 +2296,6 @@ const match = router({
   'GET /api.json': onApiSpec,
   'GET /index.mjs': onEsModule,
   'POST /bin': onCreateBin,
-  'MOVE /bin/:binId/:newId': onRenameBin,
   'PATCH /bin/:binId': onRenameBinPatch,
   'GET /bin/:binId': onReadBin,
   'DELETE /bin/:binId': onDeleteBin,
@@ -1961,12 +2321,11 @@ const match = router({
 });
 
 export function start(options: Options = {}) {
-  if (!rootDir) {
-    throw new Error('Cannot start without ROOT_DIR in environment.');
+  const testAdapters = (globalThis as any).__FILEBIN_TEST_ADAPTERS__;
+  if (!databaseModuleUrl && !(process.env.NODE_ENV === 'test' && testAdapters?.database)) {
+    throw new Error('Cannot start without DATABASE_URL in environment.');
   }
-
   cleanupAbandonedUploads().catch((error) => console.log(error));
-  importDiskCatalog().catch((error) => console.log(error));
   const cleanupTimer = setInterval(
     () => cleanupAbandonedUploads().catch((error) => console.log(error)),
     uploadCleanupIntervalMs,
@@ -1984,8 +2343,21 @@ export function start(options: Options = {}) {
     tryCatch(res, async () => {
       const binId = protectedBinId(req);
 
-      if (binId && !(await isBinAuthorized(req, binId))) {
-        return unauthorized(res);
+      const pathname = new URL(req.url, 'http://localhost').pathname;
+      const isUiRequest = ['/', '/app', '/help'].includes(pathname) || pathname.startsWith('/b/');
+      if (binId && !(await canAccessBin(req, binId))) {
+        const principal = await getPrincipal(req);
+        if (!(await getStorageBin(binId))) return isUiRequest ? notFoundPage(res) : notFound(res);
+        if (isUiRequest && !principal) {
+          const loginUrl = new URL('/auth/login', getProxyHost(req));
+          loginUrl.searchParams.set('url', String(new URL(req.url, getProxyHost(req))));
+          return res.writeHead(302, { location: String(loginUrl) }).end();
+        }
+        return unauthenticated(res);
+      }
+
+      if (binId && !isUiRequest && !(pathname.startsWith('/lock/') && ['GET', 'POST'].includes(req.method))) {
+        if ((await isBinLocked(binId)) && !(await isBinAuthorized(req, binId))) return unauthorized(res);
       }
 
       match(req, res);

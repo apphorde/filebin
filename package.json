@@ -15,7 +15,8 @@
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
-    "start": "node ./dist/server.js"
+    "start": "node ./dist/server.js",
+    "migrate": "node ./bin/migrate.mjs"
   },
   "repository": {
     "type": "git",
@@ -39,6 +40,7 @@
     "typescript-eslint": "^8.70.0"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.450.0",
     "js-yaml": "^4.1.0",
     "micro-router": "^1.0.1",
     "yauzl": "^3.1.2",
