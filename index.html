@@ -1605,7 +1605,17 @@
             <p class="text-sm font-semibold text-emerald-900">S3 account connected · {{ s3Account?.endpoint }}</p>
             <button class="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-red-600" type="button" on-click="onDisconnectS3Account()">Disconnect</button>
           </section>
-          <template if="binList?.length">
+          <template if="s3Account?.connected && !binList?.length">
+            <div class="w-full max-w-6xl text-center py-12">
+              <lucide-icon icon="folder-open" size="48" class="mx-auto text-slate-300"></lucide-icon>
+              <p class="mt-4 text-lg font-semibold text-slate-700">No bins yet</p>
+              <p class="mt-1 text-slate-500">Create your first bin to get started</p>
+              <button class="reference-primary mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-xl px-4 font-bold text-white" type="button" on-click="onAddBin()">
+                <lucide-icon icon="plus" size="15"></lucide-icon>Create bin
+              </button>
+            </div>
+          </template>
+          <template if="binList?.length && s3Account?.connected">
             <div class="w-full max-w-6xl min-w-0">
               <div class="mb-7 flex items-end justify-between gap-4">
                 <div>
