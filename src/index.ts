@@ -2284,8 +2284,15 @@ async function cleanupDeletedBins() {
 
 async function onBinCleanup(req, res) {
   const token = String(req.headers.authorization || '').replace(/^Bearer /, '');
-  if (!binCleanupToken || token !== binCleanupToken) return unauthenticated(res);
+  if (binCleanupToken && token === binCleanupToken) {
+    const deleted = await cleanupDeletedBins();
+    return res.writeHead(200, jsonHeaders).end(JSON.stringify({ deleted }));
+  }
+
+  const context = await getAdminContext(req, res);
+  if (!context) return;
   const deleted = await cleanupDeletedBins();
+  await audit(req, 'admin.bins.cleaned', 'storage');
   res.writeHead(200, jsonHeaders).end(JSON.stringify({ deleted }));
 }
 
