@@ -1130,8 +1130,8 @@
           class="reference-screen flex flex-1 flex-col gap-5 p-4 pb-24 md:gap-7 md:p-8"
           class-hidden="isLanding || isHelp || isAdminPage || isSettingsPage || !binId || locked || !s3Account?.connected"
         >
-          <div class="flex flex-col gap-4 md:flex-row md:items-center md:gap-3">
-            <div class="flex min-w-0 flex-1 items-center gap-3">
+          <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center">
+            <div class="flex min-w-0 items-center gap-3">
               <button
                 class="rounded-xl border border-indigo-100 bg-white/80 h-9 px-3 text-sm text-indigo-700"
                 class-hidden="!currentFolder"
@@ -1147,37 +1147,39 @@
                 <p class="mt-0.5 text-sm text-slate-500" class-hidden="!currentFolder">{{ currentFolder }}</p>
               </div>
             </div>
-            <div class="w-full max-w-xs md:mx-auto md:w-48 md:flex-none">
-              <div class="flex items-center justify-between gap-3 text-sm">
-                <span class="font-bold">Storage</span>
-                <span class="text-right text-slate-600">
-                  <template if="binStorage.used > 0">
-                    {{ formatSize(binStorage.used) }}
-                    <template if="binStorage.quota"> / {{ formatSize(binStorage.quota) }}</template>
-                    <template if="!binStorage.quota"> used</template>
-                  </template>
-                  <template if="binStorage.used === 0">Empty</template>
-                </span>
-              </div>
-              <div
-                class="mt-2 h-1.5 overflow-hidden rounded-full bg-indigo-100"
-                role="progressbar"
-                aria-label="Bin storage used"
-                attr-aria-valuenow="storageUsagePercent"
-                aria-valuemin="0"
-                aria-valuemax="100"
-              >
+            <div class="flex justify-center">
+              <div>
+                <div class="flex items-center justify-between gap-3 text-sm">
+                  <span class="font-bold">Storage</span>
+                  <span class="text-right text-slate-600">
+                    <template if="binStorage.used > 0">
+                      {{ formatSize(binStorage.used) }}
+                      <template if="binStorage.quota"> / {{ formatSize(binStorage.quota) }}</template>
+                      <template if="!binStorage.quota"> used</template>
+                    </template>
+                    <template if="binStorage.used === 0">Empty</template>
+                  </span>
+                </div>
                 <div
-                  class="h-full rounded-full bg-indigo-500 transition-all"
-                  attr-style="'width: ' + (binStorage.quota ? storageUsagePercent : 0) + '%'"
-                ></div>
+                  class="mt-2 h-1.5 overflow-hidden rounded-full bg-indigo-100"
+                  role="progressbar"
+                  aria-label="Bin storage used"
+                  attr-aria-valuenow="storageUsagePercent"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                >
+                  <div
+                    class="h-full rounded-full bg-indigo-500 transition-all"
+                    attr-style="'width: ' + (binStorage.quota ? storageUsagePercent : 0) + '%'"
+                  ></div>
+                </div>
+                <p class="mt-1 text-xs text-slate-500">
+                  <template if="binStorage.quota">{{ formatSize(storageRemaining) }} remaining</template>
+                  <template if="!binStorage.quota">No storage limit configured</template>
+                </p>
               </div>
-              <p class="mt-1 text-xs text-slate-500">
-                <template if="binStorage.quota">{{ formatSize(storageRemaining) }} remaining</template>
-                <template if="!binStorage.quota">No storage limit configured</template>
-              </p>
             </div>
-            <div class="ml-auto flex items-center gap-2">
+            <div class="flex items-center justify-end gap-2">
               <button
                 class="inline-flex items-center justify-center rounded-xl text-sm font-semibold border border-indigo-100 bg-white/80 h-9 px-3 py-1 text-indigo-700"
                 type="button"
