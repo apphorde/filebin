@@ -2325,6 +2325,7 @@ const match = router({
   'GET /app': onGetUI,
   'GET /help': onGetUI,
   'GET /admin': onGetUI,
+  'GET /settings': onGetUI,
   'GET /auth/profile': onAuthProfile,
   'GET /api/bins': onAuthBins,
   'GET /auth/s3-credentials': onAuthS3Credentials,
@@ -2395,7 +2396,7 @@ export function start(options: Options = {}) {
       const binId = protectedBinId(req);
 
       const pathname = new URL(req.url, 'http://localhost').pathname;
-      const isUiRequest = ['/', '/app', '/help'].includes(pathname) || pathname.startsWith('/b/');
+      const isUiRequest = ['/', '/app', '/help', '/settings'].includes(pathname) || pathname.startsWith('/b/');
       if (binId && !(await canAccessBin(req, binId))) {
         const principal = await getPrincipal(req);
         if (!(await getStorageBin(binId))) return isUiRequest ? notFoundPage(res) : notFound(res);

@@ -300,9 +300,10 @@
           const searchParams = new URL(location.href).searchParams;
           const isHelp = location.pathname === '/help';
           const isAdminPage = location.pathname === '/admin';
+          const isSettingsPage = location.pathname === '/settings';
           const isLanding = location.pathname === '/' && !searchParams.get('bin');
           const binId = ref(
-            isHelp || isLanding
+            isHelp || isLanding || isSettingsPage
               ? ''
               : // ?bin=123
                 searchParams.get('bin') ||
@@ -310,7 +311,7 @@
                   /\/b\/(?<binId>.+)/.exec(location.pathname)?.groups?.binId ||
                   localStorage.getItem('binId'),
           );
-          const appStart = computed(() => !isHelp && !isLanding && !isAdminPage && !binId.value);
+          const appStart = computed(() => !isHelp && !isLanding && !isAdminPage && !isSettingsPage && !binId.value);
           const workspaceView = ref(localStorage.getItem('filebin-workspace-view') === 'grid' ? 'grid' : 'list');
           const adminAccess = ref(false);
           const adminStats = ref({ binCount: 0, defaultQuotaBytes: null, bins: [] });
@@ -562,7 +563,12 @@
           async function cleanupDeletedBins() {
             adminError.value = '';
             adminMessage.value = '';
-            if (!confirm('Permanently delete all bins marked for deletion that have passed their grace period? This cannot be undone.')) return;
+            if (
+              !confirm(
+                'Permanently delete all bins marked for deletion that have passed their grace period? This cannot be undone.',
+              )
+            )
+              return;
             const response = await fetch('/admin/cleanup', { method: 'POST', credentials: 'include' });
             if (!response.ok) {
               adminError.value = await response.text();
@@ -667,7 +673,13 @@
           }
 
           async function onDisconnectS3Account() {
-            if (!s3Account.value?.id || !confirm('Disconnect this S3 account? Existing bins will become unavailable until an account is connected again.')) return;
+            if (
+              !s3Account.value?.id ||
+              !confirm(
+                'Disconnect this S3 account? Existing bins will become unavailable until an account is connected again.',
+              )
+            )
+              return;
             await disconnectS3Account(s3Account.value.id);
             s3Account.value = { connected: false };
           }
@@ -913,8 +925,10 @@
             adminError,
             adminMessage,
             isAdminPage,
+            isSettingsPage,
             grantExtraQuota,
             reconcileCatalog,
+            cleanupDeletedBins,
             isHelp,
             isLanding,
             appStart,
@@ -969,6 +983,7 @@
             </template>
             <button
               class="h-10 w-10 p-0 text-sm text-gray-700 inline-flex items-center justify-center gap-2 rounded-xl font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none border border-indigo-100 bg-white/80 hover:bg-white md:w-auto md:px-4"
+              class-hidden="isSettingsPage || isAdminPage || isHelp"
               on-click="onAddBin()"
               bind-disabled="creating"
               aria-label="New bin"
@@ -978,13 +993,15 @@
             </button>
             <div>
               <template if="profile">
-                <span
-                  class="h-10 w-10 p-0 text-sm border border-indigo-100 bg-white/80 inline-flex items-center justify-center rounded-xl font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none md:w-auto md:px-3"
-                  aria-label="Signed in as {{ profile?.name }}"
+                <a
+                  class="h-10 w-10 p-0 text-sm border border-indigo-100 bg-white/80 inline-flex items-center justify-center rounded-xl font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 md:w-auto md:px-4"
+                  href="/settings"
+                  aria-label="Settings"
+                  title="Settings"
                 >
-                  <lucide-icon icon="user-round" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
-                  <span class="sr-only">Signed in as {{ profile?.name }}</span>
-                </span>
+                  <lucide-icon icon="settings-2" size="14" icon-classes="h-3.5 w-3.5"></lucide-icon>
+                  <span class="hidden md:inline md:ml-2">Settings</span>
+                </a>
               </template>
               <template if="!profile && !authLoading">
                 <button
@@ -1030,9 +1047,6 @@
             </div>
             <div class="grid items-center gap-10 lg:grid-cols-[1.05fr_0.95fr]">
               <div>
-                <p class="mb-4 text-sm font-bold uppercase tracking-[0.18em] text-indigo-600">
-                  Your files, in one calm place
-                </p>
                 <h1 class="mb-6 max-w-xl text-5xl font-black tracking-tight text-gray-950 md:text-7xl lg:text-8xl">
                   Storage that stays beautifully simple.
                 </h1>
@@ -1114,7 +1128,7 @@
 
         <main
           class="reference-screen flex flex-1 flex-col gap-5 p-4 pb-24 md:gap-7 md:p-8"
-          class-hidden="isLanding || isHelp || isAdminPage || !binId || locked || !s3Account?.connected"
+          class-hidden="isLanding || isHelp || isAdminPage || isSettingsPage || !binId || locked || !s3Account?.connected"
         >
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3 min-w-0">
@@ -1317,7 +1331,7 @@
         </main>
         <nav
           class="fixed inset-x-0 bottom-0 z-20 flex items-center justify-around border-t border-indigo-100 bg-white/95 px-3 py-2 shadow-[0_-8px_28px_rgba(61,83,165,0.1)] backdrop-blur md:hidden"
-          class-hidden="isLanding || isHelp || isAdminPage || !binId || locked || !s3Account?.connected"
+          class-hidden="isLanding || isHelp || isAdminPage || isSettingsPage || !binId || locked || !s3Account?.connected"
           aria-label="File navigation"
         >
           <button
@@ -1342,17 +1356,21 @@
         </nav>
         <aside
           class="flex flex-1 items-center justify-center p-6"
-          class-hidden="isLanding || isHelp || !binId || s3Account?.connected"
+          class-hidden="isLanding || isHelp || isSettingsPage || !binId || s3Account?.connected"
         >
           <div class="w-full max-w-sm rounded-2xl border border-indigo-100 bg-white p-6 text-center shadow-sm">
             <h1 class="text-xl font-bold">Connect an S3 account</h1>
-            <p class="my-3 text-sm text-slate-600">Connect the S3 account for this OIDC user before accessing private bins.</p>
-            <a class="inline-block rounded-xl bg-blue-700 px-4 py-2 font-semibold text-white" href="/app">Open workspace settings</a>
+            <p class="my-3 text-sm text-slate-600">
+              Connect the S3 account for this OIDC user before accessing private bins.
+            </p>
+            <a class="inline-block rounded-xl bg-blue-700 px-4 py-2 font-semibold text-white" href="/app"
+              >Open workspace settings</a
+            >
           </div>
         </aside>
         <aside
           class="flex flex-1 items-center justify-center p-6"
-          class-hidden="isLanding || isHelp || !binId || !locked || !s3Account?.connected"
+          class-hidden="isLanding || isHelp || isSettingsPage || !binId || !locked || !s3Account?.connected"
         >
           <form class="w-full max-w-sm border rounded-lg p-6 shadow-sm" on-submit.stop.prevent="onUnlock()">
             <h1 class="text-2xl font-bold mb-2">This bin is locked</h1>
@@ -1385,7 +1403,6 @@
         </aside>
         <main class="order-2 mx-auto w-full max-w-4xl px-4 py-10 md:px-6 md:py-16" class-hidden="!isHelp">
           <div class="mb-12 max-w-2xl">
-            <p class="mb-3 text-sm font-semibold uppercase tracking-widest text-blue-700">File Bin guide</p>
             <h1 class="mb-4 text-4xl font-bold tracking-tight md:text-5xl">Store files from anywhere.</h1>
             <p class="text-lg leading-8 text-gray-600">
               Use the web app for quick sharing, or the command-line client for scripts, backups, and large resumable
@@ -1490,28 +1507,27 @@
           <div class="w-full max-w-6xl">
             <div class="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
-                <p class="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Platform administration</p>
-                <h1 class="mt-1 text-3xl font-black tracking-tight md:text-4xl">Storage controls</h1>
+                <h1 class="text-3xl font-black tracking-tight md:text-4xl">Storage controls</h1>
                 <p class="mt-2 text-slate-600">
                   Review every bin and grant additional storage beyond the platform default.
                 </p>
               </div>
               <div class="inline-flex gap-2">
-              <button
-                class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-indigo-100 bg-white/80 px-4 text-sm font-bold text-indigo-700 hover:bg-white"
-                type="button"
-                on-click="reconcileCatalog()"
-              >
-                <lucide-icon icon="refresh-cw" size="14"></lucide-icon>Reconcile catalog
-              </button>
-              <button
-                class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-red-100 bg-white/80 px-4 text-sm font-bold text-red-700 hover:bg-white"
-                type="button"
-                on-click="cleanupDeletedBins()"
-              >
-                <lucide-icon icon="trash" size="14"></lucide-icon>Cleanup deleted bins
-              </button>
-            </div>
+                <button
+                  class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-indigo-100 bg-white/80 px-4 text-sm font-bold text-indigo-700 hover:bg-white"
+                  type="button"
+                  on-click="reconcileCatalog()"
+                >
+                  <lucide-icon icon="refresh-cw" size="14"></lucide-icon>Reconcile catalog
+                </button>
+                <button
+                  class="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-red-100 bg-white/80 px-4 text-sm font-bold text-red-700 hover:bg-white"
+                  type="button"
+                  on-click="cleanupDeletedBins()"
+                >
+                  <lucide-icon icon="trash" size="14"></lucide-icon>Cleanup deleted bins
+                </button>
+              </div>
             </div>
             <div class="mb-6 grid gap-4 sm:grid-cols-2">
               <div class="reference-panel rounded-2xl border p-5">
@@ -1566,7 +1582,15 @@
                 <tbody>
                   <template for="bin of adminStats.bins">
                     <tr class="border-b border-indigo-50 last:border-0">
-                      <td class="px-5 py-3 font-semibold">{{ bin.id }}</td>
+                      <td class="px-5 py-3 font-semibold">
+                        <a
+                          class="text-indigo-700 hover:underline"
+                          bind-href="'/b/' + bin.id"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          >{{ bin.id }}</a
+                        >
+                      </td>
                       <td class="px-5 py-3">{{ formatSize(bin.storageUsedBytes) }}</td>
                       <td class="px-5 py-3">{{ formatSize(bin.extraQuotaBytes) }}</td>
                       <td class="px-5 py-3">
@@ -1580,45 +1604,114 @@
           </div>
         </main>
         <main
-          class="reference-screen flex flex-1 items-center justify-center px-4 py-8 md:px-8"
+          class="reference-screen flex flex-1 flex-col items-center gap-6 px-4 py-8 md:px-8"
+          class-hidden="!isSettingsPage"
+        >
+          <div class="w-full max-w-4xl">
+            <h1 class="mb-6 text-3xl font-black tracking-tight md:text-4xl">Settings</h1>
+            <template if="profile">
+              <section class="mb-5 rounded-3xl border border-indigo-100 bg-white/90 p-5 shadow-sm md:p-7">
+                <h2 class="text-xl font-bold">Account</h2>
+                <p class="mt-2 text-sm text-slate-600">
+                  Signed in as {{ profile.name || profile.email || profile.sub }}
+                </p>
+              </section>
+              <section class="rounded-3xl border border-indigo-100 bg-white/90 p-5 shadow-sm md:p-7">
+                <h2 class="text-xl font-bold">S3 storage</h2>
+                <p class="mt-2 text-sm text-slate-600">
+                  Your authenticated bins use private buckets in your connected S3 account.
+                </p>
+                <div class="mt-5 flex flex-col gap-4" class-hidden="!s3Account?.connected">
+                  <p
+                    class="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-950"
+                  >
+                    S3 account connected · {{ s3Account?.endpoint }}
+                  </p>
+                  <button
+                    class="w-fit rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+                    type="button"
+                    on-click="onDisconnectS3Account()"
+                  >
+                    Disconnect S3 account
+                  </button>
+                </div>
+                <form
+                  class="mt-5 grid gap-4 md:grid-cols-2"
+                  class-hidden="s3Account?.connected"
+                  on-submit.stop.prevent="onConnectS3Account($event)"
+                >
+                  <div class="md:col-span-2">
+                    <h3 class="font-semibold">Connect your S3 account</h3>
+                    <p class="mt-1 text-sm text-slate-600">
+                      Create an access key in your S3 provider and enter it here. FileBin validates the key and encrypts
+                      the secret before storing it.
+                    </p>
+                  </div>
+                  <label class="grid gap-1 text-sm font-medium"
+                    >S3 access key
+                    <input
+                      ref="s3accesskey"
+                      autocomplete="off"
+                      required
+                      class="h-10 rounded-xl border border-indigo-100 px-3"
+                    />
+                  </label>
+                  <label class="grid gap-1 text-sm font-medium"
+                    >S3 secret key
+                    <input
+                      ref="s3secretkey"
+                      type="password"
+                      autocomplete="new-password"
+                      required
+                      class="h-10 rounded-xl border border-indigo-100 px-3"
+                    />
+                  </label>
+                  <p class="text-sm text-red-600 md:col-span-2" class-hidden="!s3Error">{{ s3Error }}</p>
+                  <div class="md:col-span-2">
+                    <button class="reference-primary h-10 rounded-xl px-4 font-bold text-white" type="submit">
+                      Connect account
+                    </button>
+                  </div>
+                </form>
+              </section>
+            </template>
+            <section
+              class="rounded-3xl border border-indigo-100 bg-white/90 p-6 text-center shadow-sm"
+              class-hidden="profile"
+            >
+              <h2 class="text-xl font-bold">Sign in to manage settings</h2>
+              <button
+                class="reference-primary mt-4 rounded-xl px-4 py-2 font-semibold text-white"
+                type="button"
+                on-click="signIn()"
+              >
+                Sign in
+              </button>
+            </section>
+          </div>
+        </main>
+        <main
+          class="reference-screen flex flex-1 flex-col items-center justify-start gap-6 px-4 py-8 md:px-8"
           class-hidden="!appStart"
         >
-          <section class="mb-8 w-full max-w-6xl rounded-3xl border border-indigo-100 bg-white/90 p-5 shadow-sm" class-hidden="!profile || s3Account?.connected">
-            <form class="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end" on-submit.stop.prevent="onConnectS3Account($event)">
-              <div class="md:col-span-3">
-                <h2 class="text-lg font-bold">Connect your S3 account</h2>
-                <p class="mt-1 text-sm text-slate-600">FileBin stores file contents in your private S3 buckets. Create an access key in S3 and connect it here.</p>
-              </div>
-              <label class="grid gap-1 text-sm font-medium">S3 access key
-                <input ref="s3accesskey" autocomplete="off" required class="h-10 rounded-xl border border-indigo-100 px-3" />
-              </label>
-              <label class="grid gap-1 text-sm font-medium">S3 secret key
-                <input ref="s3secretkey" type="password" autocomplete="new-password" required class="h-10 rounded-xl border border-indigo-100 px-3" />
-              </label>
-              <button class="reference-primary h-10 rounded-xl px-4 font-bold text-white" type="submit">Connect account</button>
-              <p class="text-sm text-red-600 md:col-span-3" class-hidden="!s3Error">{{ s3Error }}</p>
-            </form>
+          <section
+            class="mb-6 flex w-full max-w-6xl items-center justify-between gap-4 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4"
+            class-hidden="!profile || s3Account?.connected"
+          >
+            <p class="text-sm font-medium text-amber-950">
+              Connect an S3 account in settings to create and access your private bins.
+            </p>
+            <a
+              class="shrink-0 rounded-xl bg-amber-800 px-4 py-2 text-sm font-bold text-white hover:bg-amber-900"
+              href="/settings"
+              >Open settings</a
+            >
           </section>
-          <section class="mb-8 flex w-full max-w-6xl items-center justify-between rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-3" class-hidden="!s3Account?.connected">
-            <p class="text-sm font-semibold text-emerald-900">S3 account connected · {{ s3Account?.endpoint }}</p>
-            <button class="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-red-600" type="button" on-click="onDisconnectS3Account()">Disconnect</button>
-          </section>
-          <template if="s3Account?.connected && !binList?.length">
-            <div class="w-full max-w-6xl text-center py-12">
-              <lucide-icon icon="folder-open" size="48" class="mx-auto text-slate-300"></lucide-icon>
-              <p class="mt-4 text-lg font-semibold text-slate-700">No bins yet</p>
-              <p class="mt-1 text-slate-500">Create your first bin to get started</p>
-              <button class="reference-primary mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-xl px-4 font-bold text-white" type="button" on-click="onAddBin()">
-                <lucide-icon icon="plus" size="15"></lucide-icon>Create bin
-              </button>
-            </div>
-          </template>
-          <template if="binList?.length && s3Account?.connected">
+          <template if="binList?.length">
             <div class="w-full max-w-6xl min-w-0">
               <div class="mb-7 flex items-end justify-between gap-4">
                 <div>
-                  <p class="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Your workspace</p>
-                  <h1 class="mt-1 text-3xl font-black tracking-tight md:text-4xl">Keep every project close.</h1>
+                  <h1 class="text-3xl font-black tracking-tight md:text-4xl">Your bins</h1>
                 </div>
                 <div class="flex items-center gap-2">
                   <div
@@ -1735,7 +1828,7 @@
               </div>
             </div>
           </template>
-          <template if="!binList?.length">
+          <template if="s3Account?.connected && !binList?.length">
             <div class="flex w-full max-w-3xl flex-col items-center text-center">
               <div
                 class="reference-panel mb-8 w-full max-w-lg rounded-[2rem] border bg-gradient-to-br from-indigo-50 via-white to-violet-50 p-6 md:p-10"
@@ -1763,7 +1856,6 @@
                   <path d="m294 118 3 8 8 1-6 5 2 9-7-5-7 5 2-9-7-5 8-1 4-8Z" fill="#fff" />
                 </svg>
               </div>
-              <p class="mb-3 text-sm font-bold uppercase tracking-[0.16em] text-indigo-600">Your workspace is ready</p>
               <h1 class="mb-4 text-3xl font-black tracking-tight text-gray-950 md:text-5xl">
                 Start with a fresh file bin.
               </h1>
@@ -1830,7 +1922,6 @@
                 ></template>
               </div>
               <div class="min-w-0 flex-1 pt-1">
-                <p class="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">File details</p>
                 <h2 id="filedetails-title" class="mt-1 break-words text-xl font-black text-slate-900">
                   {{ selectedFile.name }}
                 </h2>
