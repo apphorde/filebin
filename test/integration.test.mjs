@@ -193,7 +193,7 @@ test('password lock is additional to OIDC ownership and SSR does not reveal file
 });
 
 test('password-protected account credentials are encrypted and associated with OIDC subject', async () => {
-  const accessKey = 'ACCESSKEY1234567890';
+  const accessKey = 's3mini-TestKey123456';
   const response = await api('/auth/s3-credentials', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

@@ -1131,14 +1131,14 @@ async function onAuthCreateS3Credential(req, res) {
 
   const payload = await readJson(req);
   const { accessKey, secretKey } = payload;
-  const accessKeyValid = typeof accessKey === 'string' && /^[A-Za-z0-9]{8,128}$/.test(accessKey);
+  const accessKeyValid = typeof accessKey === 'string' && /^[!-~]{8,128}$/.test(accessKey);
   const secretKeyValid = typeof secretKey === 'string' && secretKey.length >= 16 && secretKey.length <= 512;
   if (!accessKeyValid || !secretKeyValid) {
     logDiagnostic('request_validation_failed', {
       status: 400,
       accessKeyType: typeof accessKey,
       accessKeyLength: typeof accessKey === 'string' ? accessKey.length : null,
-      accessKeyCharactersValid: typeof accessKey === 'string' ? /^[A-Za-z0-9]+$/.test(accessKey) : false,
+      accessKeyCharactersValid: typeof accessKey === 'string' ? /^[!-~]+$/.test(accessKey) : false,
       secretKeyType: typeof secretKey,
       secretKeyLength: typeof secretKey === 'string' ? secretKey.length : null,
     });
