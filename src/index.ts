@@ -1118,6 +1118,7 @@ async function onAuthCreateS3Credential(req, res) {
   const startedAt = Date.now();
   res.setHeader('x-diagnostic-id', diagnosticId);
   const logDiagnostic = (stage: string, details: Record<string, unknown> = {}) => {
+    if (!process.env.DEBUG) return;
     console.info(
       JSON.stringify({
         event: 's3_credential_connect',

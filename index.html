@@ -659,10 +659,8 @@
             event?.preventDefault();
             s3Error.value = '';
             try {
-              s3Account.value = await connectS3Account(s3AccessKeyInput.value.value.trim(), s3SecretKeyInput.value.value);
-              s3SecretKeyInput.value.value = '';
-              binList.value = await getMyBins();
-              if (binId.value) location.reload();
+              await connectS3Account(s3AccessKeyInput.value.value.trim(), s3SecretKeyInput.value.value);
+              location.href = '/app';
             } catch (error) {
               s3Error.value = error.message;
             }
