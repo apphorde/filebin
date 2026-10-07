@@ -1138,7 +1138,7 @@ async function onAuthCreateS3Credential(req, res) {
       status: 400,
       accessKeyType: typeof accessKey,
       accessKeyLength: typeof accessKey === 'string' ? accessKey.length : null,
-      accessKeyCharactersValid: typeof accessKey === 'string' ? /^[!-~]+$/.test(accessKey) : false,
+      accessKeyValid,
       secretKeyType: typeof secretKey,
       secretKeyLength: typeof secretKey === 'string' ? secretKey.length : null,
     });
